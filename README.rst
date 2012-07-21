@@ -97,4 +97,16 @@ Adding a rule to the previous example will yield the same HTML as before but sti
   a[href] { content: content() " (Page " counter(page) ")"; }
 
 
-PS: Use http://lesscss.org
+
+====================
+ Installing
+====================
+
+This package requires:
+- http://phantomjs.org (Headless webkit)
+- http://nodejs.org
+- http://coffeescript.org
+
+Then, run the following commands::
+  coffee -c epubcss.coffee
+  phantomjs epubcss /path/to/less/file "file:///URL/to/htmlfile.xhtml"
