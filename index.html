@@ -1,0 +1,34 @@
+<html>
+<head>
+<script src="lib/jquery.js"></script>
+<script src="lib/less-1.3.0.js"></script>
+</head>
+
+<body>
+
+<textarea style="height: 20em; width: 100em;" class="lesscss">
+
+</textarea>
+
+<input type="submit" class="generate"/>
+
+<script>
+$().ready(function() {
+
+  var p = less.Parser();
+
+  $('.generate').on('click', function() {
+  
+    p.parse($('.lesscss').val(), function(err, lessNode) {
+      var env = { frames: [] };
+      lessNode.eval(env);
+      console.log(env);
+      console.log(lessNode);
+      window.node = node;
+    }); //parse
+  }); //onclick
+}); // ready
+</script>
+
+</body>
+</html>
