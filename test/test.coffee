@@ -1,40 +1,6 @@
-system = require('system')
-fs = require('fs')
-page = require("webpage").create()
-
-page.onConsoleMessage = (msg, line, source) ->
-  console.log "console> " + msg # + " @ line: " + line
-
-if system.args.length != 3
-  console.error "This program takes exactly 2 arguments:"
-  console.error "URL (for example 'file:///home/my-home/file.xhtml)"
-  console.error "CSS/LESS file (for example '/home/my-home/style.css)"
-  phantom.exit 1
-
-address = system.args[2]
-cssFile = system.args[1]
-
-console.log "Reading CSS file at: #{cssFile}"
-lessFile = fs.read(cssFile, 'utf-8')
-
-console.log "Opening page at: #{address}"
-startTime = new Date().getTime()
+$().ready () ->
 
 
-
-
-page.open encodeURI(address), (status) ->
-  if status != 'success'
-    console.error "File not FOUND!!"
-    phantom.exit(1)
-
-  console.log "Loaded? #{status}. Took #{((new Date().getTime()) - startTime) / 1000}s"
-  console.log "jQuery loaded..."  if page.injectJs(fs.workingDirectory + '/lib/jquery.js')
-  console.log "lesscss loaded..."  if page.injectJs(fs.workingDirectory + '/lib/less-1.3.0.min.js')
-
-  num = page.evaluate((lessFile) ->
-  
-    
     # Bind some eval overrides so we can do work
     less.tree.Ruleset.prototype.eval = (env) ->
         # Work up the frames to find a context
@@ -131,13 +97,14 @@ page.open encodeURI(address), (status) ->
 
 
 
-
+        
+    p = less.Parser()
     
-    p = new less.Parser()
-    p.parse lessFile, (err, ast) ->
-      # Now that we have the Less tree
-      # Let's do some queries!
-      
-      ast.eval {frames:[]}  
-  , lessFile)
-  phantom.exit()
+    $('.lesscss').on 'change', () ->
+    
+      p.parse $('.lesscss').val(), (err, lessNode) ->
+        env = { frames: [] }
+        lessNode.eval(env)
+        console.log('Environment', env)
+        console.log('lessNode', lessNode)
+        window.node = lessNode
