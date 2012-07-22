@@ -30,11 +30,14 @@ page.open encodeURI(address), (status) ->
 
   console.log "Loaded? #{status}. Took #{((new Date().getTime()) - startTime) / 1000}s"
   console.log "jQuery loaded..."  if page.injectJs(fs.workingDirectory + '/lib/jquery.js')
-  console.log "lesscss loaded..."  if page.injectJs(fs.workingDirectory + '/lib/less-1.3.0.min.js')
+  console.log "lesscss loaded..."  if page.injectJs(fs.workingDirectory + '/lib/less-1.3.0.js')
 
   num = page.evaluate((lessFile) ->
   
-    
+
+
+
+    tree = less.tree # For when I blindly copy code from lesscss
     # Bind some eval overrides so we can do work
     less.tree.Ruleset.prototype.eval = (env) ->
         # Work up the frames to find a context
@@ -88,7 +91,6 @@ page.open encodeURI(address), (status) ->
           @_parentCSS = parentCSS
         
         ### Run the original eval ###
-        tree = less.tree # since the original uses tree
         
         selectors = @selectors and @selectors.map((s) ->
           s.eval env
@@ -128,6 +130,68 @@ page.open encodeURI(address), (status) ->
         env.frames.shift()
         ruleset
 
+    counterState = {}
+    
+    logit = (a,b,c) ->
+      console.log "TODO: Evaluating", a
+      hackValue = "PHIL:SDLKJFH"
+      new tree.Quoted('"' + hackValue + '"', hackValue, true, 11235)
+    
+    evaluators =
+      'attr': logit
+      'target-counter': logit
+      'taget-text': logit
+      'pending': logit
+    
+ 
+    workQueues =
+      'counter-reset': []
+      'counter-increment': []
+      'content': []
+      'move-to': []
+
+    storeIt = (cmd) -> ($el, value) ->
+      workQueues[cmd].push($el.data cmd, value)
+
+    complexRules =
+      'counter-reset': storeIt 'counter-reset'
+              ### This will be done in a later pass. Just store the node
+                      defaultNum = 0
+                      counters = {}
+                      for val in value
+                        if less.tree.Expression.prototype.isInstanceOf val
+                          name = val.value[0].value
+                          num = val.value[1].value
+                        else
+                          name = val.value
+                          num = defaultNum
+                        counters[name] = num
+                      $el.data 'counter-reset', counters
+                      workQueues['counter-reset'].push $el
+              ###
+
+      'counter-increment': storeIt 'counter-increment'
+      'content': storeIt 'content'
+
+    _oldCallPrototype = less.tree.Call.prototype.eval
+    less.tree.Call.prototype.eval = (env) ->
+      if @name of evaluators
+        args = @args.map (a) -> a.eval(env)
+        evaluators[@name] args
+      else
+        _oldCallPrototype.apply @, [ env ]
+    
+    less.tree.Rule.prototype.eval = (context) ->
+      if @name of complexRules
+        for el in context.frames[0]._context
+          $el = $(el)
+          complexRules[@name] $el, @value.eval(context)
+      new(tree.Rule)(@name, @value.eval(context), @important,@index, @inline)
+    # less.tree.Expression.prototype.eval = (env) ->
+    #less.tree.Quoted.prototype.eval = (env) ->
+    #less.tree.Keyword.prototype.eval = (env) ->
+
+
 
 
 
@@ -138,6 +202,7 @@ page.open encodeURI(address), (status) ->
       # Now that we have the Less tree
       # Let's do some queries!
       
-      ast.eval {frames:[]}  
+      ast.eval {frames:[]}
+      console.log "counter-reset Queue: #{workQueues['counter-reset'].length}"
   , lessFile)
   phantom.exit()

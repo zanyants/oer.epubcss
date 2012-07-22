@@ -1,9 +1,10 @@
 (function() {
 
   $().ready(function() {
-    var p;
+    var complexRules, counterState, evaluators, logit, p, storeIt, tree, workQueues, _oldCallPrototype;
+    tree = less.tree;
     less.tree.Ruleset.prototype.eval = function(env) {
-      var $context, $found, $newContext, css, endTime, frame, i, parentCSS, rule, ruleset, selector, selectors, skips, startTime, took, tree, _i, _j, _len, _len2, _ref, _ref2;
+      var $context, $found, $newContext, css, endTime, frame, i, parentCSS, rule, ruleset, selector, selectors, skips, startTime, took, _i, _j, _len, _len2, _ref, _ref2;
       skips = 0;
       _ref = env.frames;
       for (_i = 0, _len = _ref.length; _i < _len; _i++) {
@@ -46,7 +47,6 @@
       }
       /* Run the original eval
       */
-      tree = less.tree;
       selectors = this.selectors && this.selectors.map(function(s) {
         return s.eval(env);
       });
@@ -95,6 +95,72 @@
       env.frames.shift();
       return ruleset;
     };
+    counterState = {};
+    logit = function(a, b, c) {
+      var hackValue;
+      hackValue = "PHIL:SDLKJFH";
+      return new tree.Quoted('"' + hackValue + '"', hackValue, true, 11235);
+    };
+    evaluators = {
+      'attr': logit,
+      'target-counter': logit,
+      'taget-text': logit,
+      'pending': logit
+    };
+    workQueues = {
+      'counter-reset': [],
+      'counter-increment': [],
+      'content': [],
+      'move-to': []
+    };
+    storeIt = function(cmd) {
+      return function($el, value) {
+        return workQueues[cmd].push($el.data(cmd, value));
+      };
+    };
+    complexRules = {
+      'counter-reset': storeIt('counter-reset'),
+      /* This will be done in a later pass. Just store the node
+              defaultNum = 0
+              counters = {}
+              for val in value
+                if less.tree.Expression.prototype.isInstanceOf val
+                  name = val.value[0].value
+                  num = val.value[1].value
+                else
+                  name = val.value
+                  num = defaultNum
+                counters[name] = num
+              $el.data 'counter-reset', counters
+              workQueues['counter-reset'].push $el
+      */
+      'counter-increment': storeIt('counter-increment'),
+      'content': storeIt('content')
+    };
+    _oldCallPrototype = less.tree.Call.prototype.eval;
+    less.tree.Call.prototype.eval = function(env) {
+      var args;
+      if (this.name in evaluators) {
+        args = this.args.map(function(a) {
+          return a.eval(env);
+        });
+        return evaluators[this.name](args);
+      } else {
+        return _oldCallPrototype.apply(this, [env]);
+      }
+    };
+    less.tree.Rule.prototype.eval = function(context) {
+      var $el, el, _i, _len, _ref;
+      if (this.name in complexRules) {
+        _ref = context.frames[0]._context;
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          el = _ref[_i];
+          $el = $(el);
+          complexRules[this.name]($el, this.value.eval(context));
+        }
+      }
+      return new tree.Rule(this.name, this.value.eval(context), this.important, this.index, this.inline);
+    };
     p = less.Parser();
     return $('.lesscss').on('change', function() {
       return p.parse($('.lesscss').val(), function(err, lessNode) {
@@ -105,6 +171,7 @@
         lessNode.eval(env);
         console.log('Environment', env);
         console.log('lessNode', lessNode);
+        console.log("counter-reset Queue: " + workQueues['counter-reset'].length);
         return window.node = lessNode;
       });
     });
