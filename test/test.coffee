@@ -42,7 +42,12 @@ $().ready () ->
             css2 = css.replace(/::[a-z-]+/, '')
     
             startTime = new Date().getTime()
-            $found = $context.find(css2.trim())
+            # If the selector does not start with a space then it is a filter
+            # ie &:not(.labeled) or &.className
+            if css2[0] == ' '
+              $found = $context.find(css2.trim())
+            else
+              $found = $context.filter(css2.trim())
             
             # If there was a pseudo-selector then add it to the work queue
             if css != css2 and $found.length
@@ -51,14 +56,20 @@ $().ready () ->
                 pseudos = []
                 $found.each () ->
                   $el = $(@)
-                  pseudo = $(PSEUDO_ELEMENT).addClass('before')
+                  # TODO: Merge this pseudo element with an existing on (need to know CSS selector priority)
+                  # For now, just remove the previous definition?
+                  pseudo = $el.children(".#{PSEUDO_CLASS}.before")
+                  if pseudo.length == 0
+                    pseudo = $(PSEUDO_ELEMENT).addClass('before')
                   pseudos.push(pseudo.prependTo $el)
                 $found = pseudos
               else if css.indexOf(':after') >= 0
                 pseudos = []
                 $found.each () ->
                   $el = $(@)
-                  pseudo = $(PSEUDO_ELEMENT).addClass('after')
+                  pseudo = $el.children(".#{PSEUDO_CLASS}.after")
+                  if pseudo.length == 0
+                    pseudo = $(PSEUDO_ELEMENT).addClass('after')
                   pseudos.push(pseudo.appendTo $el)
                 $found = pseudos
               else
@@ -136,15 +147,27 @@ $().ready () ->
           if not i
             console.error "BUG: i is not defined!"
           if i.eval2
-            ret = ret + i.eval2()
+            ret = ret + i.eval2().value
           else
-            ret = ret + i.eval().value
+            ret = ret + expressionsToString(i.eval())
         ret
       else
         if args.eval2
-          return args.eval2()
+          return args.eval2().value
         else
           return args.eval().value
+    
+    class ContinuousEvaluatorNode
+      constructor: (@f) ->
+      
+      eval: () ->
+        ret = @f()
+        if ret
+          ret
+        else
+          @
+      eval2: () ->
+        @eval()
     
     evaluators =
       'attr': ($context, args) ->
@@ -162,13 +185,12 @@ $().ready () ->
         counterName = args[1].value
         if id not of interestingNodes
           interestingNodes[id] = false
-        return {
-          eval: () -> new tree.Anonymous("BUG: target-counter should not be evaluated yet")
-          eval2: () ->
-            if id of interestingNodes
-              counters = interestingNodes[id].data('counters') or {}
-              counters[counterName] || 0
-        }
+        return new ContinuousEvaluatorNode( () ->
+          if id of interestingNodes and interestingNodes[id]
+            counters = interestingNodes[id].data('counters') or {}
+            new tree.Anonymous(counters[counterName] || 0)
+        )
+
       'target-text': ($context, args) ->
         # This will get evaluated twice;
         # In the 1st pass the id will be added to interestingNodes
@@ -176,10 +198,8 @@ $().ready () ->
         id = expressionsToString(args[0])
         if id not of interestingNodes
           interestingNodes[id] = false
-        return {
-          eval: () -> new tree.Anonymous("BUG: target-text should not be evaluated yet")
-          eval2: () ->
-            # Loop through the node and all the children and generate a text string
+        return new ContinuousEvaluatorNode( () ->
+          if id of interestingNodes[id] and interestingNodes[id]
             $node = interestingNodes[id]
             contentType = (args[1] || {value: 'content'}).value
             ret = null
@@ -189,14 +209,15 @@ $().ready () ->
               when 'content-after' then ret = $node.children(".#{PSEUDO_CLASS} .after").text()
               when 'content-first-letter' then ret = $node.children(":not(.#{PSEUDO_CLASS})").text().substring(0,1)
               else ret = $node.text()
-            ret
-        }
+            new tree.Anonymous(ret)
+        )
       'counter': ($context, args) ->
         # Look up the counter in the global counterState
-        return {
-          eval: () -> new tree.Anonymous("BUG: counter should not be evaluated yet")
-          eval2: () -> counterState[args[0].value] || 0
-        }
+        return new ContinuousEvaluatorNode( () ->
+          val = counterState[args[0].value]
+          if val?
+            new tree.Anonymous(val)
+        )
     
  
     storeIt = (cmd) -> ($el, value) ->
@@ -208,7 +229,7 @@ $().ready () ->
       'counter-increment': storeIt 'counter-increment'
       'content': storeIt 'content'
       'display': ($el, value) ->
-        if 'none' == value
+        if 'none' == value.eval().value
           $el.remove()
         else
           #console.log 'Setting display to something other than none; ignoring'
@@ -309,17 +330,20 @@ $().ready () ->
             if parseContent and $node.data('content')
               expr = $node.data('content')
               newContent = expressionsToString(expr)
+              console.log "New Content: '#{newContent}' from", expr
               # Keep the pseudo elements
-              pseudoBefore = $node.children('before')
-              pseudoAfter = $node.children('after')
+              pseudoBefore = $node.children('.before')
+              pseudoAfter = $node.children('.after')
               $node.contents().remove()
               $node.prepend pseudoBefore
               $node.append newContent
               $node.append pseudoAfter
 
+        console.log "----- Looping over all nodes to squirrel away counters to be looked up later"
         preorderTraverse $('body'), ($node) ->
           (traverseNode false) ($node)
 
+        console.log "----- Looping over all nodes and updating based on content: "
         counterState = {}
         preorderTraverse $('body'), ($node) ->
           (traverseNode true) ($node)

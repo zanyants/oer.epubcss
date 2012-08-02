@@ -1,7 +1,7 @@
 (function() {
 
   $().ready(function() {
-    var PSEUDO_CLASS, PSEUDO_ELEMENT, complexRules, counterState, evaluators, expressionsToString, interestingNodes, p, preorderTraverse, storeIt, tree, _oldCallPrototype;
+    var ContinuousEvaluatorNode, PSEUDO_CLASS, PSEUDO_ELEMENT, complexRules, counterState, evaluators, expressionsToString, interestingNodes, p, preorderTraverse, storeIt, tree, _oldCallPrototype;
     PSEUDO_CLASS = "pseudo-element";
     PSEUDO_ELEMENT = "<span class='" + PSEUDO_CLASS + "'></span>";
     counterState = {};
@@ -36,14 +36,21 @@
           css = selector.toCSS();
           css2 = css.replace(/::[a-z-]+/, '');
           startTime = new Date().getTime();
-          $found = $context.find(css2.trim());
+          if (css2[0] === ' ') {
+            $found = $context.find(css2.trim());
+          } else {
+            $found = $context.filter(css2.trim());
+          }
           if (css !== css2 && $found.length) {
             if (css.indexOf(':before') >= 0) {
               pseudos = [];
               $found.each(function() {
                 var $el, pseudo;
                 $el = $(this);
-                pseudo = $(PSEUDO_ELEMENT).addClass('before');
+                pseudo = $el.children("." + PSEUDO_CLASS + ".before");
+                if (pseudo.length === 0) {
+                  pseudo = $(PSEUDO_ELEMENT).addClass('before');
+                }
                 return pseudos.push(pseudo.prependTo($el));
               });
               $found = pseudos;
@@ -52,7 +59,10 @@
               $found.each(function() {
                 var $el, pseudo;
                 $el = $(this);
-                pseudo = $(PSEUDO_ELEMENT).addClass('after');
+                pseudo = $el.children("." + PSEUDO_CLASS + ".after");
+                if (pseudo.length === 0) {
+                  pseudo = $(PSEUDO_ELEMENT).addClass('after');
+                }
                 return pseudos.push(pseudo.appendTo($el));
               });
               $found = pseudos;
@@ -132,20 +142,43 @@
           i = args[_i];
           if (!i) console.error("BUG: i is not defined!");
           if (i.eval2) {
-            ret = ret + i.eval2();
+            ret = ret + i.eval2().value;
           } else {
-            ret = ret + i.eval().value;
+            ret = ret + expressionsToString(i.eval());
           }
         }
         return ret;
       } else {
         if (args.eval2) {
-          return args.eval2();
+          return args.eval2().value;
         } else {
           return args.eval().value;
         }
       }
     };
+    ContinuousEvaluatorNode = (function() {
+
+      function ContinuousEvaluatorNode(f) {
+        this.f = f;
+      }
+
+      ContinuousEvaluatorNode.prototype.eval = function() {
+        var ret;
+        ret = this.f();
+        if (ret) {
+          return ret;
+        } else {
+          return this;
+        }
+      };
+
+      ContinuousEvaluatorNode.prototype.eval2 = function() {
+        return this.eval();
+      };
+
+      return ContinuousEvaluatorNode;
+
+    })();
     evaluators = {
       'attr': function($context, args) {
         var href, id;
@@ -161,29 +194,21 @@
         id = expressionsToString(args[0]);
         counterName = args[1].value;
         if (!(id in interestingNodes)) interestingNodes[id] = false;
-        return {
-          eval: function() {
-            return new tree.Anonymous("BUG: target-counter should not be evaluated yet");
-          },
-          eval2: function() {
-            var counters;
-            if (id in interestingNodes) {
-              counters = interestingNodes[id].data('counters') || {};
-              return counters[counterName] || 0;
-            }
+        return new ContinuousEvaluatorNode(function() {
+          var counters;
+          if (id in interestingNodes && interestingNodes[id]) {
+            counters = interestingNodes[id].data('counters') || {};
+            return new tree.Anonymous(counters[counterName] || 0);
           }
-        };
+        });
       },
       'target-text': function($context, args) {
         var id;
         id = expressionsToString(args[0]);
         if (!(id in interestingNodes)) interestingNodes[id] = false;
-        return {
-          eval: function() {
-            return new tree.Anonymous("BUG: target-text should not be evaluated yet");
-          },
-          eval2: function() {
-            var $node, contentType, ret;
+        return new ContinuousEvaluatorNode(function() {
+          var $node, contentType, ret;
+          if (id in interestingNodes[id] && interestingNodes[id]) {
             $node = interestingNodes[id];
             contentType = (args[1] || {
               value: 'content'
@@ -205,19 +230,16 @@
               default:
                 ret = $node.text();
             }
-            return ret;
+            return new tree.Anonymous(ret);
           }
-        };
+        });
       },
       'counter': function($context, args) {
-        return {
-          eval: function() {
-            return new tree.Anonymous("BUG: counter should not be evaluated yet");
-          },
-          eval2: function() {
-            return counterState[args[0].value] || 0;
-          }
-        };
+        return new ContinuousEvaluatorNode(function() {
+          var val;
+          val = counterState[args[0].value];
+          if (val != null) return new tree.Anonymous(val);
+        });
       }
     };
     storeIt = function(cmd) {
@@ -230,7 +252,7 @@
       'counter-increment': storeIt('counter-increment'),
       'content': storeIt('content'),
       'display': function($el, value) {
-        if ('none' === value) {
+        if ('none' === value.eval().value) {
           return $el.remove();
         } else {
 
@@ -336,8 +358,9 @@
             if (parseContent && $node.data('content')) {
               expr = $node.data('content');
               newContent = expressionsToString(expr);
-              pseudoBefore = $node.children('before');
-              pseudoAfter = $node.children('after');
+              console.log("New Content: '" + newContent + "' from", expr);
+              pseudoBefore = $node.children('.before');
+              pseudoAfter = $node.children('.after');
               $node.contents().remove();
               $node.prepend(pseudoBefore);
               $node.append(newContent);
@@ -345,9 +368,11 @@
             }
           };
         };
+        console.log("----- Looping over all nodes to squirrel away counters to be looked up later");
         preorderTraverse($('body'), function($node) {
           return (traverseNode(false))($node);
         });
+        console.log("----- Looping over all nodes and updating based on content: ");
         counterState = {};
         preorderTraverse($('body'), function($node) {
           return (traverseNode(true))($node);
