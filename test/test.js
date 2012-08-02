@@ -1,10 +1,13 @@
 (function() {
 
   $().ready(function() {
-    var complexRules, counterState, evaluators, logit, p, storeIt, tree, workQueues, _oldCallPrototype;
+    var PSEUDO_CLASS, PSEUDO_ELEMENT, complexRules, counterState, evaluators, expressionsToString, interestingNodes, p, preorderTraverse, storeIt, tree, _oldCallPrototype;
+    PSEUDO_CLASS = "pseudo-element";
+    PSEUDO_ELEMENT = "<span class='" + PSEUDO_CLASS + "'></span>";
+    counterState = {};
     tree = less.tree;
     less.tree.Ruleset.prototype.eval = function(env) {
-      var $context, $found, $newContext, css, endTime, frame, i, parentCSS, rule, ruleset, selector, selectors, skips, startTime, took, _i, _j, _len, _len2, _ref, _ref2;
+      var $context, $found, $newContext, css, css2, endTime, frame, i, parentCSS, pseudos, rule, ruleset, selector, selectors, skips, startTime, took, _i, _j, _len, _len2, _ref, _ref2;
       skips = 0;
       _ref = env.frames;
       for (_i = 0, _len = _ref.length; _i < _len; _i++) {
@@ -21,7 +24,7 @@
         }
       }
       if (!$context) {
-        $context = $('body');
+        $context = $(document);
         parentCSS = '';
       }
       $newContext = $('NOT-VALID-TAG');
@@ -31,9 +34,32 @@
         for (_j = 0, _len2 = _ref2.length; _j < _len2; _j++) {
           selector = _ref2[_j];
           css = selector.toCSS();
-          css = css.replace(/::[a-z-]+/, '');
+          css2 = css.replace(/::[a-z-]+/, '');
           startTime = new Date().getTime();
-          $found = $context.find(css.trim());
+          $found = $context.find(css2.trim());
+          if (css !== css2 && $found.length) {
+            if (css.indexOf(':before') >= 0) {
+              pseudos = [];
+              $found.each(function() {
+                var $el, pseudo;
+                $el = $(this);
+                pseudo = $(PSEUDO_ELEMENT).addClass('before');
+                return pseudos.push(pseudo.prependTo($el));
+              });
+              $found = pseudos;
+            } else if (css.indexOf(':after') >= 0) {
+              pseudos = [];
+              $found.each(function() {
+                var $el, pseudo;
+                $el = $(this);
+                pseudo = $(PSEUDO_ELEMENT).addClass('after');
+                return pseudos.push(pseudo.appendTo($el));
+              });
+              $found = pseudos;
+            } else {
+              console.error("Weird pseudo-selector found: " + css);
+            }
+          }
           $newContext = $newContext.add($found);
           endTime = new Date().getTime();
           took = endTime - startTime;
@@ -96,55 +122,130 @@
       return ruleset;
     };
     counterState = {};
-    logit = function(a, b, c) {
-      var hackValue;
-      hackValue = "PHIL:SDLKJFH";
-      return new tree.Quoted('"' + hackValue + '"', hackValue, true, 11235);
+    interestingNodes = {};
+    expressionsToString = function(args) {
+      var i, ret, _i, _len;
+      if (less.tree.Expression.prototype.isPrototypeOf(args)) args = args.value;
+      if (args instanceof Array) {
+        ret = '';
+        for (_i = 0, _len = args.length; _i < _len; _i++) {
+          i = args[_i];
+          if (!i) console.error("BUG: i is not defined!");
+          if (i.eval2) {
+            ret = ret + i.eval2();
+          } else {
+            ret = ret + i.eval().value;
+          }
+        }
+        return ret;
+      } else {
+        if (args.eval2) {
+          return args.eval2();
+        } else {
+          return args.eval().value;
+        }
+      }
     };
     evaluators = {
-      'attr': logit,
-      'target-counter': logit,
-      'taget-text': logit,
-      'pending': logit
-    };
-    workQueues = {
-      'counter-reset': [],
-      'counter-increment': [],
-      'content': [],
-      'move-to': []
+      'attr': function($context, args) {
+        var href, id;
+        href = args[0].value;
+        id = $context.attr(href);
+        return new tree.Quoted('"' + id + '"', id, true, 11235);
+      },
+      'target-counter': function($context, args) {
+        var counterName, id;
+        if (args.length < 2) {
+          console.error('target-counter requires at least 2 arguments');
+        }
+        id = expressionsToString(args[0]);
+        counterName = args[1].value;
+        if (!(id in interestingNodes)) interestingNodes[id] = false;
+        return {
+          eval: function() {
+            return new tree.Anonymous("BUG: target-counter should not be evaluated yet");
+          },
+          eval2: function() {
+            var counters;
+            if (id in interestingNodes) {
+              counters = interestingNodes[id].data('counters') || {};
+              return counters[counterName] || 0;
+            }
+          }
+        };
+      },
+      'target-text': function($context, args) {
+        var id;
+        id = expressionsToString(args[0]);
+        if (!(id in interestingNodes)) interestingNodes[id] = false;
+        return {
+          eval: function() {
+            return new tree.Anonymous("BUG: target-text should not be evaluated yet");
+          },
+          eval2: function() {
+            var $node, contentType, ret;
+            $node = interestingNodes[id];
+            contentType = (args[1] || {
+              value: 'content'
+            }).value;
+            ret = null;
+            switch (contentType) {
+              case 'content-element':
+                ret = $node.children(":not(." + PSEUDO_CLASS + ")").text();
+                break;
+              case 'content-before':
+                ret = $node.children("." + PSEUDO_CLASS + " .before").text();
+                break;
+              case 'content-after':
+                ret = $node.children("." + PSEUDO_CLASS + " .after").text();
+                break;
+              case 'content-first-letter':
+                ret = $node.children(":not(." + PSEUDO_CLASS + ")").text().substring(0, 1);
+                break;
+              default:
+                ret = $node.text();
+            }
+            return ret;
+          }
+        };
+      },
+      'counter': function($context, args) {
+        return {
+          eval: function() {
+            return new tree.Anonymous("BUG: counter should not be evaluated yet");
+          },
+          eval2: function() {
+            return counterState[args[0].value] || 0;
+          }
+        };
+      }
     };
     storeIt = function(cmd) {
       return function($el, value) {
-        return workQueues[cmd].push($el.data(cmd, value));
+        return $el.data(cmd, value);
       };
     };
     complexRules = {
       'counter-reset': storeIt('counter-reset'),
-      /* This will be done in a later pass. Just store the node
-              defaultNum = 0
-              counters = {}
-              for val in value
-                if less.tree.Expression.prototype.isInstanceOf val
-                  name = val.value[0].value
-                  num = val.value[1].value
-                else
-                  name = val.value
-                  num = defaultNum
-                counters[name] = num
-              $el.data 'counter-reset', counters
-              workQueues['counter-reset'].push $el
-      */
       'counter-increment': storeIt('counter-increment'),
-      'content': storeIt('content')
+      'content': storeIt('content'),
+      'display': function($el, value) {
+        if ('none' === value) {
+          return $el.remove();
+        } else {
+
+        }
+      }
     };
     _oldCallPrototype = less.tree.Call.prototype.eval;
     less.tree.Call.prototype.eval = function(env) {
-      var args;
+      var $el, args;
       if (this.name in evaluators) {
+        $el = env.frames[0]._context;
         args = this.args.map(function(a) {
           return a.eval(env);
         });
-        return evaluators[this.name](args);
+        return evaluators[this.name]($el, args);
       } else {
         return _oldCallPrototype.apply(this, [env]);
       }
@@ -161,18 +262,97 @@
       }
       return new tree.Rule(this.name, this.value.eval(context), this.important, this.index, this.inline);
     };
+    preorderTraverse = function($nodes, func) {
+      return $nodes.each(function() {
+        var $node;
+        $node = $(this);
+        func($node);
+        return preorderTraverse($node.children(), func);
+      });
+    };
     p = less.Parser();
     return $('.lesscss').on('change', function() {
       return p.parse($('.lesscss').val(), function(err, lessNode) {
-        var env;
+        var env, id, parseCounters, traverseNode;
         env = {
           frames: []
         };
         lessNode.eval(env);
-        console.log('Environment', env);
-        console.log('lessNode', lessNode);
-        console.log("counter-reset Queue: " + workQueues['counter-reset'].length);
-        return window.node = lessNode;
+        for (id in interestingNodes) {
+          interestingNodes[id] = $(id);
+        }
+        parseCounters = function(expr, defaultNum) {
+          var counters, exp, i, name, tokens, val, _i, _len, _ref;
+          counters = {};
+          if (less.tree.Anonymous.prototype.isPrototypeOf(expr)) {
+            tokens = expr.value.split(' ');
+          } else if (less.tree.Expression.prototype.isPrototypeOf(expr)) {
+            tokens = [];
+            _ref = expr.value;
+            for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+              exp = _ref[_i];
+              tokens.push(exp.value);
+            }
+          } else {
+            tokens = [expr.value];
+          }
+          i = 0;
+          while (i < tokens.length) {
+            name = tokens[i];
+            if (i === tokens.length - 1) {
+              val = defaultNum;
+            } else if (isNaN(parseInt(tokens[i + 1]))) {
+              val = defaultNum;
+            } else {
+              val = parseInt(tokens[i + 1]);
+              i++;
+            }
+            counters[name] = val;
+            i++;
+          }
+          return counters;
+        };
+        traverseNode = function(parseContent) {
+          return function($node) {
+            var counter, counters, expr, newContent, pseudoAfter, pseudoBefore, val;
+            if ($node.data('counter-reset')) {
+              counters = parseCounters($node.data('counter-reset'), 0);
+              for (counter in counters) {
+                val = counters[counter];
+                counterState[counter] = val;
+              }
+            }
+            if ($node.data('counter-increment')) {
+              counters = parseCounters($node.data('counter-increment'), 1);
+              for (counter in counters) {
+                val = counters[counter];
+                counterState[counter] = (counterState[counter] || 0) + val;
+              }
+            }
+            if (!parseContent && ('#' + $node.attr('id') in interestingNodes)) {
+              $node.data('counters', $.extend({}, counterState));
+              interestingNodes['#' + $node.attr('id')] = $node;
+            }
+            if (parseContent && $node.data('content')) {
+              expr = $node.data('content');
+              newContent = expressionsToString(expr);
+              pseudoBefore = $node.children('before');
+              pseudoAfter = $node.children('after');
+              $node.contents().remove();
+              $node.prepend(pseudoBefore);
+              $node.append(newContent);
+              return $node.append(pseudoAfter);
+            }
+          };
+        };
+        preorderTraverse($('body'), function($node) {
+          return (traverseNode(false))($node);
+        });
+        counterState = {};
+        preorderTraverse($('body'), function($node) {
+          return (traverseNode(true))($node);
+        });
+        return console.log('Done processing!');
       });
     });
   });

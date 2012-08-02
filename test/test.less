@@ -1,0 +1,23 @@
+body {
+  counter-reset: chapter c2 10 page;
+}
+
+.chapter {
+  counter-increment: chapter c2 -2;
+}
+.chapter h1::before {
+  content: "1 ?= " counter(chapter) " ";
+}
+
+body::before { 
+  content: "Hello! 0 ?= " counter(woot) " and 10 ?= " counter(c2);
+}
+
+body::after {
+  content: "Bye: 8 ?= " counter(c2);
+}
+
+a {
+  content: "lookup-counter: 1 ?= " target-counter(attr(href), chapter) " lookup-text: Titul ?= " target-text(attr(href) "-title", contents-element);
+  counter-increment: simple-counter;
+}
