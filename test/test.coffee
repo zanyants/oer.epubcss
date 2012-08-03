@@ -1,5 +1,48 @@
 $().ready () ->
 
+    ###
+    What does this file do?
+    -----------------------
+    
+    This parses a lesscss (or plain CSS) file and emulates certain rules that aren't supported by some HTML browsers
+    There are several pieces:
+    
+    1. Replace lesscss node evaluation for some nodes:
+    
+    LessCSS offers a great AST for navigating through CSS.
+    It has a stack (using env.frames that keeps scoped information)
+    We add an additional variable, _context that stores a jQuery set of elements that are currently matched
+    So, for a ruleset (selector and rules) the Ruleset.eval maintains a list of elements that currently match the selector.
+    Rule.eval is modified to understand rules like counter-increment: and content:
+    Call.eval is modified to emulate functions like target-counter(), attr(), etc
+    
+    2. Special LessCSS Nodes:
+    
+    Some of these functions cannot be evaluated yet so their evaluation is deferred until later using DeferredEvaluationNode
+    (DeferredEvaluationNode.eval() will return itself when it cannot evaluate to something)
+    
+    The tree.Anonymous node is used to return strings (like the result of counter(chapter) or target-text() )
+    
+    3. Pseudo Elements ::before and ::after
+    
+    Pseudo elements are "emulated" because their content: may not be supported by the browser (ie "content: target-text(attr(href))" )
+    Also, EPUB documents do not support ::before and ::after
+    Pseudo elements are converted to spans with a special class defined by PSEUDO_CLASS.
+    
+    4. Loops over the document:
+    
+    The DOM is looped over 3 times:
+    - The 1st traversal is done using LessCSS selectors and is used to:
+      a. Expand pseudo elements
+      b. Remove elements with "display: none"
+      c. Sprinkle the special CSS rules on elements (stored in jQuery data())
+      d. Find which nodes will need to be looked up later using target-text or target-counter
+
+    - The 2nd traversal is over the entire DOM in order and calculates the state of all the counters
+    - The 3rd traversal is also over the entire DOM in order and replaces the content of elements that have a 'content: ...' rule.
+    
+    ###
+
 
     PSEUDO_CLASS = "pseudo-element"
     PSEUDO_ELEMENT = "<span class='#{PSEUDO_CLASS}'></span>"
@@ -157,7 +200,7 @@ $().ready () ->
         else
           return args.eval().value
     
-    class ContinuousEvaluatorNode
+    class DeferredEvaluationNode
       constructor: (@f) ->
       
       eval: () ->
@@ -185,7 +228,7 @@ $().ready () ->
         counterName = args[1].value
         if id not of interestingNodes
           interestingNodes[id] = false
-        return new ContinuousEvaluatorNode( () ->
+        return new DeferredEvaluationNode( () ->
           if id of interestingNodes and interestingNodes[id]
             counters = interestingNodes[id].data('counters') or {}
             new tree.Anonymous(counters[counterName] || 0)
@@ -198,7 +241,7 @@ $().ready () ->
         id = expressionsToString(args[0])
         if id not of interestingNodes
           interestingNodes[id] = false
-        return new ContinuousEvaluatorNode( () ->
+        return new DeferredEvaluationNode( () ->
           if id of interestingNodes[id] and interestingNodes[id]
             $node = interestingNodes[id]
             contentType = (args[1] || {value: 'content'}).value
@@ -213,7 +256,7 @@ $().ready () ->
         )
       'counter': ($context, args) ->
         # Look up the counter in the global counterState
-        return new ContinuousEvaluatorNode( () ->
+        return new DeferredEvaluationNode( () ->
           val = counterState[args[0].value]
           if val?
             new tree.Anonymous(val)

@@ -1,7 +1,48 @@
 (function() {
 
   $().ready(function() {
-    var ContinuousEvaluatorNode, PSEUDO_CLASS, PSEUDO_ELEMENT, complexRules, counterState, evaluators, expressionsToString, interestingNodes, p, preorderTraverse, storeIt, tree, _oldCallPrototype;
+    /*
+        What does this file do?
+        -----------------------
+        
+        This parses a lesscss (or plain CSS) file and emulates certain rules that aren't supported by some HTML browsers
+        There are several pieces:
+        
+        1. Replace lesscss node evaluation for some nodes:
+        
+        LessCSS offers a great AST for navigating through CSS.
+        It has a stack (using env.frames that keeps scoped information)
+        We add an additional variable, _context that stores a jQuery set of elements that are currently matched
+        So, for a ruleset (selector and rules) the Ruleset.eval maintains a list of elements that currently match the selector.
+        Rule.eval is modified to understand rules like counter-increment: and content:
+        Call.eval is modified to emulate functions like target-counter(), attr(), etc
+        
+        2. Special LessCSS Nodes:
+        
+        Some of these functions cannot be evaluated yet so their evaluation is deferred until later using DeferredEvaluationNode
+        (DeferredEvaluationNode.eval() will return itself when it cannot evaluate to something)
+        
+        The tree.Anonymous node is used to return strings (like the result of counter(chapter) or target-text() )
+        
+        3. Pseudo Elements ::before and ::after
+        
+        Pseudo elements are "emulated" because their content: may not be supported by the browser (ie "content: target-text(attr(href))" )
+        Also, EPUB documents do not support ::before and ::after
+        Pseudo elements are converted to spans with a special class defined by PSEUDO_CLASS.
+        
+        4. Loops over the document:
+        
+        The DOM is looped over 3 times:
+        - The 1st traversal is done using LessCSS selectors and is used to:
+          a. Expand pseudo elements
+          b. Remove elements with "display: none"
+          c. Sprinkle the special CSS rules on elements (stored in jQuery data())
+          d. Find which nodes will need to be looked up later using target-text or target-counter
+    
+        - The 2nd traversal is over the entire DOM in order and calculates the state of all the counters
+        - The 3rd traversal is also over the entire DOM in order and replaces the content of elements that have a 'content: ...' rule.
+    */
+    var DeferredEvaluationNode, PSEUDO_CLASS, PSEUDO_ELEMENT, complexRules, counterState, evaluators, expressionsToString, interestingNodes, p, preorderTraverse, storeIt, tree, _oldCallPrototype;
     PSEUDO_CLASS = "pseudo-element";
     PSEUDO_ELEMENT = "<span class='" + PSEUDO_CLASS + "'></span>";
     counterState = {};
@@ -156,13 +197,13 @@
         }
       }
     };
-    ContinuousEvaluatorNode = (function() {
+    DeferredEvaluationNode = (function() {
 
-      function ContinuousEvaluatorNode(f) {
+      function DeferredEvaluationNode(f) {
         this.f = f;
       }
 
-      ContinuousEvaluatorNode.prototype.eval = function() {
+      DeferredEvaluationNode.prototype.eval = function() {
         var ret;
         ret = this.f();
         if (ret) {
@@ -172,11 +213,11 @@
         }
       };
 
-      ContinuousEvaluatorNode.prototype.eval2 = function() {
+      DeferredEvaluationNode.prototype.eval2 = function() {
         return this.eval();
       };
 
-      return ContinuousEvaluatorNode;
+      return DeferredEvaluationNode;
 
     })();
     evaluators = {
@@ -194,7 +235,7 @@
         id = expressionsToString(args[0]);
         counterName = args[1].value;
         if (!(id in interestingNodes)) interestingNodes[id] = false;
-        return new ContinuousEvaluatorNode(function() {
+        return new DeferredEvaluationNode(function() {
           var counters;
           if (id in interestingNodes && interestingNodes[id]) {
             counters = interestingNodes[id].data('counters') || {};
@@ -206,7 +247,7 @@
         var id;
         id = expressionsToString(args[0]);
         if (!(id in interestingNodes)) interestingNodes[id] = false;
-        return new ContinuousEvaluatorNode(function() {
+        return new DeferredEvaluationNode(function() {
           var $node, contentType, ret;
           if (id in interestingNodes[id] && interestingNodes[id]) {
             $node = interestingNodes[id];
@@ -235,7 +276,7 @@
         });
       },
       'counter': function($context, args) {
-        return new ContinuousEvaluatorNode(function() {
+        return new DeferredEvaluationNode(function() {
           var val;
           val = counterState[args[0].value];
           if (val != null) return new tree.Anonymous(val);
