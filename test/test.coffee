@@ -44,11 +44,10 @@ $().ready () ->
     ###
 
 
+    DEBUG_MODIFIED_CLASS = 'debug-epubcss' # Added whenever "content:" is evaluated
     PSEUDO_CLASS = "pseudo-element"
     PSEUDO_ELEMENT = "<span class='#{PSEUDO_CLASS}'></span>"
     
-    counterState = {}
-
     tree = less.tree # For when I blindly copy code from lesscss
     # Bind some eval overrides so we can do work
     less.tree.Ruleset.prototype.eval = (env) ->
@@ -173,13 +172,12 @@ $().ready () ->
         env.frames.shift()
         ruleset
 
-    counterState = {}
     interestingNodes = {} # Used to know which nodes to squirrel counter information into since someone points to them via target-counter
     
     # Concatenated multiple expressions (evaluated) into 1
     # For example: attr(href) '-title' turns into [ tree.Quoted('#id123'), tree.Quoted('-title') ] and
     # '#id123-title' is returned
-    expressionsToString = (args) ->
+    expressionsToString = (env, args) ->
       # id could be an array of tree.Quoted
       # If so, concatentate
       if less.tree.Expression.prototype.isPrototypeOf args
@@ -189,60 +187,72 @@ $().ready () ->
         for i in args
           if not i
             console.error "BUG: i is not defined!"
-          if i.eval2
-            ret = ret + i.eval2().value
-          else
-            ret = ret + expressionsToString(i.eval())
+          ret = ret + expressionsToString(env, i)
         ret
       else
-        if args.eval2
-          return args.eval2().value
-        else
-          return args.eval().value
+        return args.eval(env).value
     
     class DeferredEvaluationNode
       constructor: (@f) ->
       
-      eval: () ->
-        ret = @f()
-        if ret
-          ret
+      eval: (env) ->
+        if env.doNotDefer
+          @f(env)
         else
           @
-      eval2: () ->
-        @eval()
     
     evaluators =
-      'attr': ($context, args) ->
-        # There is only 1 arg, the attribute we need to look up
-        href = args[0].value
-        id = $context.attr href
-        new tree.Quoted('"' + id + '"', id, true, 11235) # Hack because lessCSS uses these frequently?
-      'target-counter': ($context, args) ->
+      'attr': (env, args) ->
+        return new DeferredEvaluationNode( (env) ->
+          $context = env.doNotDefer
+          
+          # If it's a pseudo-element then use the parent
+          if $context.hasClass(PSEUDO_CLASS)
+            $context = $context.parent()
+          
+          # There is only 1 arg, the attribute we need to look up
+          href = args[0].eval(env).value
+          id = $context.attr href
+          if not id
+            console.warn "CSS Bug: Could not find attribute '#{href}' on ", $context
+          new tree.Anonymous(id or "NO_ID_FOUND_WOOT") # Hack because lessCSS uses these frequently?
+        
+        ).eval(env)
+      'target-counter': (env, args) ->
         if args.length < 2
           console.error 'target-counter requires at least 2 arguments'
         # This will get evaluated twice;
-        # In the 1st pass the id will be added to interestingNodes
+        # In the 1st pass the hrefs of all jQuery element will be added to interestingNodes
         # TODO: In the 2nd pass the counter will be looked up on the node
-        id = expressionsToString(args[0])
-        counterName = args[1].value
-        if id not of interestingNodes
+        for node in env.frames[0]._context
+          $node = $(node)
+          newEnv =
+            doNotDefer: $node
+            frames:[{_context:$node}]
+          id = expressionsToString(newEnv, args[0])
           interestingNodes[id] = false
-        return new DeferredEvaluationNode( () ->
+        return new DeferredEvaluationNode( (env) ->
+          id = expressionsToString(env, args[0])
+          counterName = args[1].eval(env).value
           if id of interestingNodes and interestingNodes[id]
             counters = interestingNodes[id].data('counters') or {}
             new tree.Anonymous(counters[counterName] || 0)
-        )
+        ).eval(env)
 
-      'target-text': ($context, args) ->
+      'target-text': (env, args) ->
         # This will get evaluated twice;
-        # In the 1st pass the id will be added to interestingNodes
+        # In the 1st pass the hrefs of all jQuery element will be added to interestingNodes
         # TODO: In the 2nd pass the counter will be looked up on the node
-        id = expressionsToString(args[0])
-        if id not of interestingNodes
+        for node in env.frames[0]._context
+          $node = $(node)
+          newEnv =
+            doNotDefer: $node
+            frames:[{_context:$node}]
+          id = expressionsToString(newEnv, args[0])
           interestingNodes[id] = false
-        return new DeferredEvaluationNode( () ->
-          if id of interestingNodes[id] and interestingNodes[id]
+        return new DeferredEvaluationNode( (env) ->
+          id = expressionsToString(env, args[0])
+          if interestingNodes[id]
             $node = interestingNodes[id]
             contentType = (args[1] || {value: 'content'}).value
             ret = null
@@ -253,14 +263,15 @@ $().ready () ->
               when 'content-first-letter' then ret = $node.children(":not(.#{PSEUDO_CLASS})").text().substring(0,1)
               else ret = $node.text()
             new tree.Anonymous(ret)
-        )
-      'counter': ($context, args) ->
-        # Look up the counter in the global counterState
-        return new DeferredEvaluationNode( () ->
-          val = counterState[args[0].value]
-          if val?
-            new tree.Anonymous(val)
-        )
+        ).eval(env)
+      'counter': (env, args) ->
+        # Look up the counter in the stored counter state
+        return new DeferredEvaluationNode( (env) ->
+          $context = env.doNotDefer
+          name = args[0].eval(env).value
+          val = $context.data('counters')[name]
+          new tree.Anonymous(val or 0)
+        ).eval(env)
     
  
     storeIt = (cmd) -> ($el, value) ->
@@ -277,24 +288,28 @@ $().ready () ->
         else
           #console.log 'Setting display to something other than none; ignoring'
 
+    # There are 2 types of calls in lesscss:
+    # 1. Macros that are expanded
+    # 2. Function calls within content:
+    #
+    # (1) Should be evaluated during the 1st pass when finding jQuery nodes
+    # (2) Should be evaluated during the 1st pass to resolve less variables like @counter-name
+    #       and during the last pass (the env should contain only 1 jQuery element)
+    #
     _oldCallPrototype = less.tree.Call.prototype.eval
     less.tree.Call.prototype.eval = (env) ->
       if @name of evaluators
-        $el = env.frames[0]._context
         args = @args.map (a) -> a.eval(env)
-        evaluators[@name]($el, args)
+        evaluators[@name](env, args)
       else
         _oldCallPrototype.apply @, [ env ]
     
-    less.tree.Rule.prototype.eval = (context) ->
+    less.tree.Rule.prototype.eval = (env) ->
       if @name of complexRules
-        for el in context.frames[0]._context
+        for el in env.frames[0]._context
           $el = $(el)
-          complexRules[@name] $el, @value.eval(context)
-      new(tree.Rule)(@name, @value.eval(context), @important,@index, @inline)
-    # less.tree.Expression.prototype.eval = (env) ->
-    #less.tree.Quoted.prototype.eval = (env) ->
-    #less.tree.Keyword.prototype.eval = (env) ->
+          complexRules[@name] $el, @value.eval(env)
+      new(tree.Rule)(@name, @value.eval(env), @important,@index, @inline)
 
 
     preorderTraverse = ($nodes, func) ->
@@ -353,8 +368,9 @@ $().ready () ->
 
           counters
 
-        traverseNode = (parseContent) ->
-          ($node) ->
+        console.log "----- Looping over all nodes to squirrel away counters to be looked up later"
+        counterState = {}
+        preorderTraverse $('body'), ($node) ->
             if $node.data('counter-reset')
               counters = parseCounters($node.data('counter-reset'), 0)
               for counter, val of counters
@@ -365,14 +381,25 @@ $().ready () ->
                 counterState[counter] = (counterState[counter] || 0) + val
   
             # If this node is an interestingNode then squirrel away the current counter state
-            if not parseContent and ('#' + $node.attr('id') of interestingNodes)
+            isInteresting = '#' + $node.attr('id') of interestingNodes
+            if isInteresting or $node.data('content')
               $node.data 'counters', ($.extend {}, counterState)
+            if isInteresting
               interestingNodes['#' + $node.attr('id')] = $node
 
+        console.log "----- Looping over all nodes and updating based on content: "
+        counterState = {}
+        preorderTraverse $('body'), ($node) ->
             # If there is a content: _____ then replace the text contents of the node (not pseudo elements)
-            if parseContent and $node.data('content')
+            if $node.data('content')
+              $node.addClass(DEBUG_MODIFIED_CLASS)
+              env =
+                doNotDefer: $node
+                frames: [
+                  _context: $node
+                ]
               expr = $node.data('content')
-              newContent = expressionsToString(expr)
+              newContent = expressionsToString(env, expr)
               console.log "New Content: '#{newContent}' from", expr
               # Keep the pseudo elements
               pseudoBefore = $node.children('.before')
@@ -381,14 +408,5 @@ $().ready () ->
               $node.prepend pseudoBefore
               $node.append newContent
               $node.append pseudoAfter
-
-        console.log "----- Looping over all nodes to squirrel away counters to be looked up later"
-        preorderTraverse $('body'), ($node) ->
-          (traverseNode false) ($node)
-
-        console.log "----- Looping over all nodes and updating based on content: "
-        counterState = {}
-        preorderTraverse $('body'), ($node) ->
-          (traverseNode true) ($node)
         
         console.log 'Done processing!'

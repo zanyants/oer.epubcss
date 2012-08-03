@@ -42,10 +42,10 @@
         - The 2nd traversal is over the entire DOM in order and calculates the state of all the counters
         - The 3rd traversal is also over the entire DOM in order and replaces the content of elements that have a 'content: ...' rule.
     */
-    var DeferredEvaluationNode, PSEUDO_CLASS, PSEUDO_ELEMENT, complexRules, counterState, evaluators, expressionsToString, interestingNodes, p, preorderTraverse, storeIt, tree, _oldCallPrototype;
+    var DEBUG_MODIFIED_CLASS, DeferredEvaluationNode, PSEUDO_CLASS, PSEUDO_ELEMENT, complexRules, evaluators, expressionsToString, interestingNodes, p, preorderTraverse, storeIt, tree, _oldCallPrototype;
+    DEBUG_MODIFIED_CLASS = 'debug-epubcss';
     PSEUDO_CLASS = "pseudo-element";
     PSEUDO_ELEMENT = "<span class='" + PSEUDO_CLASS + "'></span>";
-    counterState = {};
     tree = less.tree;
     less.tree.Ruleset.prototype.eval = function(env) {
       var $context, $found, $newContext, css, css2, endTime, frame, i, parentCSS, pseudos, rule, ruleset, selector, selectors, skips, startTime, took, _i, _j, _len, _len2, _ref, _ref2;
@@ -172,9 +172,8 @@
       env.frames.shift();
       return ruleset;
     };
-    counterState = {};
     interestingNodes = {};
-    expressionsToString = function(args) {
+    expressionsToString = function(env, args) {
       var i, ret, _i, _len;
       if (less.tree.Expression.prototype.isPrototypeOf(args)) args = args.value;
       if (args instanceof Array) {
@@ -182,19 +181,11 @@
         for (_i = 0, _len = args.length; _i < _len; _i++) {
           i = args[_i];
           if (!i) console.error("BUG: i is not defined!");
-          if (i.eval2) {
-            ret = ret + i.eval2().value;
-          } else {
-            ret = ret + expressionsToString(i.eval());
-          }
+          ret = ret + expressionsToString(env, i);
         }
         return ret;
       } else {
-        if (args.eval2) {
-          return args.eval2().value;
-        } else {
-          return args.eval().value;
-        }
+        return args.eval(env).value;
       }
     };
     DeferredEvaluationNode = (function() {
@@ -203,53 +194,82 @@
         this.f = f;
       }
 
-      DeferredEvaluationNode.prototype.eval = function() {
-        var ret;
-        ret = this.f();
-        if (ret) {
-          return ret;
+      DeferredEvaluationNode.prototype.eval = function(env) {
+        if (env.doNotDefer) {
+          return this.f(env);
         } else {
           return this;
         }
-      };
-
-      DeferredEvaluationNode.prototype.eval2 = function() {
-        return this.eval();
       };
 
       return DeferredEvaluationNode;
 
     })();
     evaluators = {
-      'attr': function($context, args) {
-        var href, id;
-        href = args[0].value;
-        id = $context.attr(href);
-        return new tree.Quoted('"' + id + '"', id, true, 11235);
+      'attr': function(env, args) {
+        return new DeferredEvaluationNode(function(env) {
+          var $context, href, id;
+          $context = env.doNotDefer;
+          if ($context.hasClass(PSEUDO_CLASS)) $context = $context.parent();
+          href = args[0].eval(env).value;
+          id = $context.attr(href);
+          if (!id) {
+            console.warn("CSS Bug: Could not find attribute '" + href + "' on ", $context);
+          }
+          return new tree.Anonymous(id || "NO_ID_FOUND_WOOT");
+        }).eval(env);
       },
-      'target-counter': function($context, args) {
-        var counterName, id;
+      'target-counter': function(env, args) {
+        var $node, id, newEnv, node, _i, _len, _ref;
         if (args.length < 2) {
           console.error('target-counter requires at least 2 arguments');
         }
-        id = expressionsToString(args[0]);
-        counterName = args[1].value;
-        if (!(id in interestingNodes)) interestingNodes[id] = false;
-        return new DeferredEvaluationNode(function() {
-          var counters;
+        _ref = env.frames[0]._context;
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          node = _ref[_i];
+          $node = $(node);
+          newEnv = {
+            doNotDefer: $node,
+            frames: [
+              {
+                _context: $node
+              }
+            ]
+          };
+          id = expressionsToString(newEnv, args[0]);
+          interestingNodes[id] = false;
+        }
+        return new DeferredEvaluationNode(function(env) {
+          var counterName, counters;
+          id = expressionsToString(env, args[0]);
+          counterName = args[1].eval(env).value;
           if (id in interestingNodes && interestingNodes[id]) {
             counters = interestingNodes[id].data('counters') || {};
             return new tree.Anonymous(counters[counterName] || 0);
           }
-        });
+        }).eval(env);
       },
-      'target-text': function($context, args) {
-        var id;
-        id = expressionsToString(args[0]);
-        if (!(id in interestingNodes)) interestingNodes[id] = false;
-        return new DeferredEvaluationNode(function() {
-          var $node, contentType, ret;
-          if (id in interestingNodes[id] && interestingNodes[id]) {
+      'target-text': function(env, args) {
+        var $node, id, newEnv, node, _i, _len, _ref;
+        _ref = env.frames[0]._context;
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          node = _ref[_i];
+          $node = $(node);
+          newEnv = {
+            doNotDefer: $node,
+            frames: [
+              {
+                _context: $node
+              }
+            ]
+          };
+          id = expressionsToString(newEnv, args[0]);
+          interestingNodes[id] = false;
+        }
+        return new DeferredEvaluationNode(function(env) {
+          var contentType, ret;
+          id = expressionsToString(env, args[0]);
+          if (interestingNodes[id]) {
             $node = interestingNodes[id];
             contentType = (args[1] || {
               value: 'content'
@@ -273,14 +293,16 @@
             }
             return new tree.Anonymous(ret);
           }
-        });
+        }).eval(env);
       },
-      'counter': function($context, args) {
-        return new DeferredEvaluationNode(function() {
-          var val;
-          val = counterState[args[0].value];
-          if (val != null) return new tree.Anonymous(val);
-        });
+      'counter': function(env, args) {
+        return new DeferredEvaluationNode(function(env) {
+          var $context, name, val;
+          $context = env.doNotDefer;
+          name = args[0].eval(env).value;
+          val = $context.data('counters')[name];
+          return new tree.Anonymous(val || 0);
+        }).eval(env);
       }
     };
     storeIt = function(cmd) {
@@ -302,28 +324,27 @@
     };
     _oldCallPrototype = less.tree.Call.prototype.eval;
     less.tree.Call.prototype.eval = function(env) {
-      var $el, args;
+      var args;
       if (this.name in evaluators) {
-        $el = env.frames[0]._context;
         args = this.args.map(function(a) {
           return a.eval(env);
         });
-        return evaluators[this.name]($el, args);
+        return evaluators[this.name](env, args);
       } else {
         return _oldCallPrototype.apply(this, [env]);
       }
     };
-    less.tree.Rule.prototype.eval = function(context) {
+    less.tree.Rule.prototype.eval = function(env) {
       var $el, el, _i, _len, _ref;
       if (this.name in complexRules) {
-        _ref = context.frames[0]._context;
+        _ref = env.frames[0]._context;
         for (_i = 0, _len = _ref.length; _i < _len; _i++) {
           el = _ref[_i];
           $el = $(el);
-          complexRules[this.name]($el, this.value.eval(context));
+          complexRules[this.name]($el, this.value.eval(env));
         }
       }
-      return new tree.Rule(this.name, this.value.eval(context), this.important, this.index, this.inline);
+      return new tree.Rule(this.name, this.value.eval(env), this.important, this.index, this.inline);
     };
     preorderTraverse = function($nodes, func) {
       return $nodes.each(function() {
@@ -336,7 +357,7 @@
     p = less.Parser();
     return $('.lesscss').on('change', function() {
       return p.parse($('.lesscss').val(), function(err, lessNode) {
-        var env, id, parseCounters, traverseNode;
+        var counterState, env, id, parseCounters;
         env = {
           frames: []
         };
@@ -375,48 +396,56 @@
           }
           return counters;
         };
-        traverseNode = function(parseContent) {
-          return function($node) {
-            var counter, counters, expr, newContent, pseudoAfter, pseudoBefore, val;
-            if ($node.data('counter-reset')) {
-              counters = parseCounters($node.data('counter-reset'), 0);
-              for (counter in counters) {
-                val = counters[counter];
-                counterState[counter] = val;
-              }
-            }
-            if ($node.data('counter-increment')) {
-              counters = parseCounters($node.data('counter-increment'), 1);
-              for (counter in counters) {
-                val = counters[counter];
-                counterState[counter] = (counterState[counter] || 0) + val;
-              }
-            }
-            if (!parseContent && ('#' + $node.attr('id') in interestingNodes)) {
-              $node.data('counters', $.extend({}, counterState));
-              interestingNodes['#' + $node.attr('id')] = $node;
-            }
-            if (parseContent && $node.data('content')) {
-              expr = $node.data('content');
-              newContent = expressionsToString(expr);
-              console.log("New Content: '" + newContent + "' from", expr);
-              pseudoBefore = $node.children('.before');
-              pseudoAfter = $node.children('.after');
-              $node.contents().remove();
-              $node.prepend(pseudoBefore);
-              $node.append(newContent);
-              return $node.append(pseudoAfter);
-            }
-          };
-        };
         console.log("----- Looping over all nodes to squirrel away counters to be looked up later");
+        counterState = {};
         preorderTraverse($('body'), function($node) {
-          return (traverseNode(false))($node);
+          var counter, counters, isInteresting, val;
+          if ($node.data('counter-reset')) {
+            counters = parseCounters($node.data('counter-reset'), 0);
+            for (counter in counters) {
+              val = counters[counter];
+              counterState[counter] = val;
+            }
+          }
+          if ($node.data('counter-increment')) {
+            counters = parseCounters($node.data('counter-increment'), 1);
+            for (counter in counters) {
+              val = counters[counter];
+              counterState[counter] = (counterState[counter] || 0) + val;
+            }
+          }
+          isInteresting = '#' + $node.attr('id') in interestingNodes;
+          if (isInteresting || $node.data('content')) {
+            $node.data('counters', $.extend({}, counterState));
+          }
+          if (isInteresting) {
+            return interestingNodes['#' + $node.attr('id')] = $node;
+          }
         });
         console.log("----- Looping over all nodes and updating based on content: ");
         counterState = {};
         preorderTraverse($('body'), function($node) {
-          return (traverseNode(true))($node);
+          var expr, newContent, pseudoAfter, pseudoBefore;
+          if ($node.data('content')) {
+            $node.addClass(DEBUG_MODIFIED_CLASS);
+            env = {
+              doNotDefer: $node,
+              frames: [
+                {
+                  _context: $node
+                }
+              ]
+            };
+            expr = $node.data('content');
+            newContent = expressionsToString(env, expr);
+            console.log("New Content: '" + newContent + "' from", expr);
+            pseudoBefore = $node.children('.before');
+            pseudoAfter = $node.children('.after');
+            $node.contents().remove();
+            $node.prepend(pseudoBefore);
+            $node.append(newContent);
+            return $node.append(pseudoAfter);
+          }
         });
         return console.log('Done processing!');
       });
