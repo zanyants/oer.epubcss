@@ -35,11 +35,114 @@ page.open encodeURI(address), (status) ->
   num = page.evaluate((lessFile) ->
   
 
+    ###
+    What does this file do?
+    -----------------------
+    
+    This parses a lesscss (or plain CSS) file and emulates certain rules that aren't supported by some HTML browsers
+    There are several pieces:
+    
+    1. Replace lesscss node evaluation for some nodes:
+    
+    LessCSS offers a great AST for navigating through CSS.
+    It has a stack (using env.frames that keeps scoped information)
+    We add an additional variable, _context that stores a jQuery set of elements that are currently matched
+    So, for a ruleset (selector and rules) the Ruleset.eval maintains a list of elements that currently match the selector.
+    Rule.eval is modified to understand rules like counter-increment: and content:
+    Call.eval is modified to emulate functions like target-counter(), attr(), etc
+    
+    2. Special LessCSS Nodes:
+    
+    Some of these functions cannot be evaluated yet so their evaluation is deferred until later using DeferredEvaluationNode
+    (DeferredEvaluationNode.eval() will return itself when it cannot evaluate to something)
+    
+    The tree.Anonymous node is used to return strings (like the result of counter(chapter) or target-text() )
+    
+    3. Pseudo Elements ::before and ::after
+    
+    Pseudo elements are "emulated" because their content: may not be supported by the browser (ie "content: target-text(attr(href))" )
+    Also, EPUB documents do not support ::before and ::after
+    Pseudo elements are converted to spans with a special class defined by PSEUDO_CLASS.
+    
+    4. Loops over the document:
+    
+    The DOM is looped over 3 times:
+    - The 1st traversal is done using LessCSS selectors and is used to:
+      a. Expand pseudo elements
+      b. Remove elements with "display: none"
+      c. Sprinkle the special CSS rules on elements (stored in jQuery data())
+      d. Find which nodes will need to be looked up later using target-text or target-counter
+
+    - The 2nd traversal is over the entire DOM in order and calculates the state of all the counters
+    - The 3rd traversal is also over the entire DOM in order and replaces the content of elements that have a 'content: ...' rule.
+    
+    ###
+
+
+    DEBUG_MODIFIED_CLASS = 'debug-epubcss' # Added whenever "content:" is evaluated
     PSEUDO_CLASS = "pseudo-element"
     PSEUDO_ELEMENT = "<span class='#{PSEUDO_CLASS}'></span>"
     
-    counterState = {}
 
+    ### ############ Util Functions ########### ###
+    # These are used to format numbers and aren't terribly interesting
+    
+    # convert integer to Roman numeral. From http://www.diveintopython.net/unit_testing/romantest.html
+    toRoman = (num) ->
+      romanNumeralMap = [
+        ['M',  1000]
+        ['CM', 900]
+        ['D',  500]
+        ['CD', 400]
+        ['C',  100]
+        ['XC', 90]
+        ['L',  50]
+        ['XL', 40]
+        ['X',  10]
+        ['IX', 9]
+        ['V',  5]
+        ['IV', 4]
+        ['I',  1]
+      ]
+      if not (0 < num < 5000)
+        console.error 'number out of range (must be 1..4999)'
+        return num
+      
+      result = ''
+      for [numeral, integer] in romanNumeralMap
+        while num >= integer
+          result += numeral
+          num -= integer
+      result
+
+    # Options are defined by http://www.w3.org/TR/CSS21/generate.html#propdef-list-style-type
+    numberingStyle = (num, style='decimal') ->
+      switch style
+        when 'decimal-leading-zero'
+          if num < 10 then "0#{num}"
+          else num
+        when 'lower-roman'
+          toRoman(num).toLowerCase()
+        when 'upper-roman'
+          toRoman(num)
+        when 'lower-latin'
+          if not (1 <= num <= 26)
+            console.error 'number out of range (must be 1...26)'
+          String.fromCharCode(num + 96)
+        when 'upper-latin'
+          if not (1 <= num <= 26)
+            console.error 'number out of range (must be 1...26)'
+          String.fromCharCode(num + 64)
+        when 'decimal'
+          num
+        else 
+          console.warn "Counter numbering not supported for list type #{style}. Using decimal."
+          num
+
+
+
+    ### ############### Override lesscss AST nodes ############### ###
+    
     tree = less.tree # For when I blindly copy code from lesscss
     # Bind some eval overrides so we can do work
     less.tree.Ruleset.prototype.eval = (env) ->
@@ -76,7 +179,12 @@ page.open encodeURI(address), (status) ->
             css2 = css.replace(/::[a-z-]+/, '')
     
             startTime = new Date().getTime()
-            $found = $context.find(css2.trim())
+            # If the selector does not start with a space then it is a filter
+            # ie &:not(.labeled) or &.className
+            if css2[0] == ' '
+              $found = $context.find(css2.trim())
+            else
+              $found = $context.filter(css2.trim())
             
             # If there was a pseudo-selector then add it to the work queue
             if css != css2 and $found.length
@@ -85,14 +193,20 @@ page.open encodeURI(address), (status) ->
                 pseudos = []
                 $found.each () ->
                   $el = $(@)
-                  pseudo = $(PSEUDO_ELEMENT).addClass('before')
+                  # TODO: Merge this pseudo element with an existing on (need to know CSS selector priority)
+                  # For now, just remove the previous definition?
+                  pseudo = $el.children(".#{PSEUDO_CLASS}.before")
+                  if pseudo.length == 0
+                    pseudo = $(PSEUDO_ELEMENT).addClass('before')
                   pseudos.push(pseudo.prependTo $el)
                 $found = pseudos
               else if css.indexOf(':after') >= 0
                 pseudos = []
                 $found.each () ->
                   $el = $(@)
-                  pseudo = $(PSEUDO_ELEMENT).addClass('after')
+                  pseudo = $el.children(".#{PSEUDO_CLASS}.after")
+                  if pseudo.length == 0
+                    pseudo = $(PSEUDO_ELEMENT).addClass('after')
                   pseudos.push(pseudo.appendTo $el)
                 $found = pseudos
               else
@@ -153,19 +267,12 @@ page.open encodeURI(address), (status) ->
         env.frames.shift()
         ruleset
 
-    counterState = {}
     interestingNodes = {} # Used to know which nodes to squirrel counter information into since someone points to them via target-counter
-    
-    logit = (a) ->
-      ($context, b, c) ->
-        console.log "TODO: Evaluating", a, b
-        hackValue = "PHIL:SDLKJFH"
-        new tree.Quoted('"' + hackValue + '"', hackValue, true, 11235)
     
     # Concatenated multiple expressions (evaluated) into 1
     # For example: attr(href) '-title' turns into [ tree.Quoted('#id123'), tree.Quoted('-title') ] and
     # '#id123-title' is returned
-    expressionsToString = (args) ->
+    expressionsToString = (env, args) ->
       # id could be an array of tree.Quoted
       # If so, concatentate
       if less.tree.Expression.prototype.isPrototypeOf args
@@ -175,49 +282,75 @@ page.open encodeURI(address), (status) ->
         for i in args
           if not i
             console.error "BUG: i is not defined!"
-            console.log "break here"
-          if i.eval2
-            ret = ret + i.eval2()
-          else
-            ret = ret + i.eval().value
+          ret = ret + expressionsToString(env, i)
         ret
       else
-        if args.eval2
-          return args.eval2()
+        return args.eval(env).value
+    
+    class DeferredEvaluationNode
+      constructor: (@f) ->
+      
+      eval: (env) ->
+        if env.doNotDefer
+          @f(env)
         else
-          return args.eval().value
+          @
     
     evaluators =
-      'attr': ($context, args) ->
-        # There is only 1 arg, the attribute we need to look up
-        href = args[0].value
-        id = $context.attr href
-        new tree.Quoted('"' + id + '"', id, true, 11235) # Hack because lessCSS uses these frequently?
-      'target-counter': ($context, args) ->
+      'attr': (env, args) ->
+        return new DeferredEvaluationNode( (env) ->
+          $context = env.doNotDefer
+          
+          # If it's a pseudo-element then use the parent
+          if $context.hasClass(PSEUDO_CLASS)
+            $context = $context.parent()
+          
+          # There is only 1 arg, the attribute we need to look up
+          href = args[0].eval(env).value
+          id = $context.attr href
+          if not id
+            console.warn "CSS Bug: Could not find attribute '#{href}' on ", $context
+          new tree.Anonymous(id or "NO_ID_FOUND_WOOT") # Hack because lessCSS uses these frequently?
+        
+        ).eval(env)
+      'target-counter': (env, args) ->
         if args.length < 2
           console.error 'target-counter requires at least 2 arguments'
         # This will get evaluated twice;
-        # In the 1st pass the id will be added to interestingNodes
+        # In the 1st pass the hrefs of all jQuery element will be added to interestingNodes
         # TODO: In the 2nd pass the counter will be looked up on the node
-        id = expressionsToString(args[0])
-        counterName = args[1].value
-        if id not of interestingNodes
+        for node in env.frames[0]._context
+          $node = $(node)
+          newEnv =
+            doNotDefer: $node
+          id = expressionsToString(newEnv, args[0])
           interestingNodes[id] = false
-        return {
-          eval: () -> new tree.Anonymous("BUG: target-counter should not be evaluated yet")
-          eval2: () -> interestingNodes[id].data('counters')[counterName] || 0
-        }
-      'target-text': ($context, args) ->
+        return new DeferredEvaluationNode( (env) ->
+          id = expressionsToString(env, args[0])
+          counterName = args[1].eval(env).value
+          style = 'decimal'
+          if args.length > 2
+            style = args[2].eval(env).value
+          if id of interestingNodes and interestingNodes[id]
+            counters = interestingNodes[id].data('counters') or {}
+            val = counters[counterName] || 0
+            new tree.Anonymous(numberingStyle(val, style))
+        ).eval(env)
+
+      'target-text': (env, args) ->
         # This will get evaluated twice;
-        # In the 1st pass the id will be added to interestingNodes
+        # In the 1st pass the hrefs of all jQuery element will be added to interestingNodes
         # TODO: In the 2nd pass the counter will be looked up on the node
-        id = expressionsToString(args[0])
-        if id not of interestingNodes
+        for node in env.frames[0]._context
+          $node = $(node)
+          newEnv =
+            doNotDefer: $node
+            frames:[{_context:$node}]
+          id = expressionsToString(newEnv, args[0])
           interestingNodes[id] = false
-        return {
-          eval: () -> new tree.Anonymous("BUG: target-text should not be evaluated yet")
-          eval2: () ->
-            # Loop through the node and all the children and generate a text string
+        return new DeferredEvaluationNode( (env) ->
+          id = expressionsToString(env, args[0])
+          if interestingNodes[id]
             $node = interestingNodes[id]
             contentType = (args[1] || {value: 'content'}).value
             ret = null
@@ -227,19 +360,24 @@ page.open encodeURI(address), (status) ->
               when 'content-after' then ret = $node.children(".#{PSEUDO_CLASS} .after").text()
               when 'content-first-letter' then ret = $node.children(":not(.#{PSEUDO_CLASS})").text().substring(0,1)
               else ret = $node.text()
-            ret
-        }
-      'counter': ($context, args) ->
-        # Look up the counter in the global counterState
-        return {
-          eval: () -> new tree.Anonymous("BUG: counter should not be evaluated yet")
-          eval2: () -> counterState[args[0].value] || 0
-        }
-      'pending': logit 'pending'
+            new tree.Anonymous(ret)
+        ).eval(env)
+      'counter': (env, args) ->
+        # Look up the counter in the stored counter state
+        return new DeferredEvaluationNode( (env) ->
+          $context = env.doNotDefer
+          name = args[0].eval(env).value
+          # Defined by http://www.w3.org/TR/CSS21/generate.html#propdef-list-style-type
+          style = 'decimal'
+          if args.length > 1
+            style = args[1].eval(env).value
+          val = $context.data('counters')[name]
+          new tree.Anonymous(numberingStyle(val or 0, style))
+        ).eval(env)
     
  
     storeIt = (cmd) -> ($el, value) ->
-      console.log "TODO: storing for later: #{cmd} #{$el[0].tagName}", value
+      #console.log "TODO: storing for later: #{cmd} #{$el[0].tagName}", value
       $el.data(cmd, value)
 
     complexRules =
@@ -247,29 +385,33 @@ page.open encodeURI(address), (status) ->
       'counter-increment': storeIt 'counter-increment'
       'content': storeIt 'content'
       'display': ($el, value) ->
-        if 'none' == value
+        if 'none' == value.eval().value
           $el.remove()
         else
-          console.log 'Setting display to something other than none; ignoring'
+          #console.log 'Setting display to something other than none; ignoring'
 
+    # There are 2 types of calls in lesscss:
+    # 1. Macros that are expanded
+    # 2. Function calls within content:
+    #
+    # (1) Should be evaluated during the 1st pass when finding jQuery nodes
+    # (2) Should be evaluated during the 1st pass to resolve less variables like @counter-name
+    #       and during the last pass (the env should contain only 1 jQuery element)
+    #
     _oldCallPrototype = less.tree.Call.prototype.eval
     less.tree.Call.prototype.eval = (env) ->
       if @name of evaluators
-        $el = env.frames[0]._context
         args = @args.map (a) -> a.eval(env)
-        evaluators[@name]($el, args)
+        evaluators[@name](env, args)
       else
         _oldCallPrototype.apply @, [ env ]
     
-    less.tree.Rule.prototype.eval = (context) ->
+    less.tree.Rule.prototype.eval = (env) ->
       if @name of complexRules
-        for el in context.frames[0]._context
+        for el in env.frames[0]._context
           $el = $(el)
-          complexRules[@name] $el, @value.eval(context)
-      new(tree.Rule)(@name, @value.eval(context), @important,@index, @inline)
-    # less.tree.Expression.prototype.eval = (env) ->
-    #less.tree.Quoted.prototype.eval = (env) ->
-    #less.tree.Keyword.prototype.eval = (env) ->
+          complexRules[@name] $el, @value.eval(env)
+      new(tree.Rule)(@name, @value.eval(env), @important,@index, @inline)
 
 
     preorderTraverse = ($nodes, func) ->
@@ -277,6 +419,7 @@ page.open encodeURI(address), (status) ->
         $node = $(@)
         func($node)
         preorderTraverse($node.children(), func)
+
 
 
 
@@ -330,8 +473,9 @@ page.open encodeURI(address), (status) ->
 
           counters
 
-        traverseNode = (parseContent) ->
-          ($node) ->
+        console.log "----- Looping over all nodes to squirrel away counters to be looked up later"
+        counterState = {}
+        preorderTraverse $('body'), ($node) ->
             if $node.data('counter-reset')
               counters = parseCounters($node.data('counter-reset'), 0)
               for counter, val of counters
@@ -342,30 +486,37 @@ page.open encodeURI(address), (status) ->
                 counterState[counter] = (counterState[counter] || 0) + val
   
             # If this node is an interestingNode then squirrel away the current counter state
-            if not parseContent and ('#' + $node.attr('id') of interestingNodes)
+            isInteresting = '#' + $node.attr('id') of interestingNodes
+            if isInteresting or $node.data('content')
               $node.data 'counters', ($.extend {}, counterState)
+            if isInteresting
               interestingNodes['#' + $node.attr('id')] = $node
 
+        console.log "----- Looping over all nodes and updating based on content: "
+        counterState = {}
+        preorderTraverse $('body'), ($node) ->
             # If there is a content: _____ then replace the text contents of the node (not pseudo elements)
-            if parseContent and $node.data('content')
+            if $node.data('content')
+              $node.addClass(DEBUG_MODIFIED_CLASS)
+              env =
+                doNotDefer: $node
+                frames: [
+                  _context: $node
+                ]
               expr = $node.data('content')
-              console.log 'PHKFJH'
-              console.log "Content for ", $node, expr, expressionsToString(expr)
-              newContent = expressionsToString(expr)
+              newContent = expressionsToString(env, expr)
+              console.log "New Content: '#{newContent}' from", expr
               # Keep the pseudo elements
-              pseudoBefore = $node.children('before')
-              pseudoAfter = $node.children('after')
+              pseudoBefore = $node.children('.before')
+              pseudoAfter = $node.children('.after')
               $node.contents().remove()
               $node.prepend pseudoBefore
               $node.append newContent
               $node.append pseudoAfter
+        
+        console.log 'Done processing!'
 
-        preorderTraverse $('body'), ($node) ->
-          (traverseNode false) ($node)
 
-        counterState = {}
-        preorderTraverse $('body'), ($node) ->
-          (traverseNode true) ($node)
 
   , lessFile)
   phantom.exit()

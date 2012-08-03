@@ -1,5 +1,5 @@
 body {
-  counter-reset: chapter c2 10 page;
+  counter-reset: chapter c2 2012 page;
 }
 
 .chapter {
@@ -10,14 +10,14 @@ body {
 }
 
 body::before { 
-  content: "Hello! 0 ?= " counter(woot) " and 10 ?= " counter(c2);
+  content: "Hello! 0 ?= " counter(woot) " and MMXII ?= " counter(c2, upper-roman);
 }
 
 body::after {
-  content: "Bye: 8 ?= " counter(c2);
+  content: "Bye: 2010 ?= " counter(c2);
 }
 
 a {
-  content: "lookup-counter: 1 ?= " target-counter(attr(href), chapter) " lookup-text: Titul ?= " target-text(attr(href) "-title", contents-element);
+  content: "lookup-counter: A ?= " target-counter(attr(href), chapter, upper-latin) " lookup-text: Titul ?= " target-text(attr(href) "-title", contents-element);
   counter-increment: simple-counter;
 }

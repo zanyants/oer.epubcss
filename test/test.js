@@ -42,10 +42,62 @@
         - The 2nd traversal is over the entire DOM in order and calculates the state of all the counters
         - The 3rd traversal is also over the entire DOM in order and replaces the content of elements that have a 'content: ...' rule.
     */
-    var DEBUG_MODIFIED_CLASS, DeferredEvaluationNode, PSEUDO_CLASS, PSEUDO_ELEMENT, complexRules, evaluators, expressionsToString, interestingNodes, p, preorderTraverse, storeIt, tree, _oldCallPrototype;
+    var DEBUG_MODIFIED_CLASS, DeferredEvaluationNode, PSEUDO_CLASS, PSEUDO_ELEMENT, complexRules, evaluators, expressionsToString, interestingNodes, numberingStyle, p, preorderTraverse, storeIt, toRoman, tree, _oldCallPrototype;
     DEBUG_MODIFIED_CLASS = 'debug-epubcss';
     PSEUDO_CLASS = "pseudo-element";
     PSEUDO_ELEMENT = "<span class='" + PSEUDO_CLASS + "'></span>";
+    /*
+    */
+    toRoman = function(num) {
+      var integer, numeral, result, romanNumeralMap, _i, _len, _ref;
+      romanNumeralMap = [['M', 1000], ['CM', 900], ['D', 500], ['CD', 400], ['C', 100], ['XC', 90], ['L', 50], ['XL', 40], ['X', 10], ['IX', 9], ['V', 5], ['IV', 4], ['I', 1]];
+      if (!((0 < num && num < 5000))) {
+        console.error('number out of range (must be 1..4999)');
+        return num;
+      }
+      result = '';
+      for (_i = 0, _len = romanNumeralMap.length; _i < _len; _i++) {
+        _ref = romanNumeralMap[_i], numeral = _ref[0], integer = _ref[1];
+        while (num >= integer) {
+          result += numeral;
+          num -= integer;
+        }
+      }
+      return result;
+    };
+    numberingStyle = function(num, style) {
+      if (style == null) style = 'decimal';
+      switch (style) {
+        case 'decimal-leading-zero':
+          if (num < 10) {
+            return "0" + num;
+          } else {
+            return num;
+          }
+          break;
+        case 'lower-roman':
+          return toRoman(num).toLowerCase();
+        case 'upper-roman':
+          return toRoman(num);
+        case 'lower-latin':
+          if (!((1 <= num && num <= 26))) {
+            console.error('number out of range (must be 1...26)');
+          }
+          return String.fromCharCode(num + 96);
+        case 'upper-latin':
+          if (!((1 <= num && num <= 26))) {
+            console.error('number out of range (must be 1...26)');
+          }
+          return String.fromCharCode(num + 64);
+        case 'decimal':
+          return num;
+        default:
+          console.warn("Counter numbering not supported for list type " + style + ". Using decimal.");
+          return num;
+      }
+    };
+    /*
+    */
     tree = less.tree;
     less.tree.Ruleset.prototype.eval = function(env) {
       var $context, $found, $newContext, css, css2, endTime, frame, i, parentCSS, pseudos, rule, ruleset, selector, selectors, skips, startTime, took, _i, _j, _len, _len2, _ref, _ref2;
@@ -229,23 +281,21 @@
           node = _ref[_i];
           $node = $(node);
           newEnv = {
-            doNotDefer: $node,
-            frames: [
-              {
-                _context: $node
-              }
-            ]
+            doNotDefer: $node
           };
           id = expressionsToString(newEnv, args[0]);
           interestingNodes[id] = false;
         }
         return new DeferredEvaluationNode(function(env) {
-          var counterName, counters;
+          var counterName, counters, style, val;
           id = expressionsToString(env, args[0]);
           counterName = args[1].eval(env).value;
+          style = 'decimal';
+          if (args.length > 2) style = args[2].eval(env).value;
           if (id in interestingNodes && interestingNodes[id]) {
             counters = interestingNodes[id].data('counters') || {};
-            return new tree.Anonymous(counters[counterName] || 0);
+            val = counters[counterName] || 0;
+            return new tree.Anonymous(numberingStyle(val, style));
           }
         }).eval(env);
       },
@@ -297,11 +347,13 @@
       },
       'counter': function(env, args) {
         return new DeferredEvaluationNode(function(env) {
-          var $context, name, val;
+          var $context, name, style, val;
           $context = env.doNotDefer;
           name = args[0].eval(env).value;
+          style = 'decimal';
+          if (args.length > 1) style = args[1].eval(env).value;
           val = $context.data('counters')[name];
-          return new tree.Anonymous(val || 0);
+          return new tree.Anonymous(numberingStyle(val || 0, style));
         }).eval(env);
       }
     };

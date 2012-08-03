@@ -48,6 +48,66 @@ $().ready () ->
     PSEUDO_CLASS = "pseudo-element"
     PSEUDO_ELEMENT = "<span class='#{PSEUDO_CLASS}'></span>"
     
+
+    ### ############ Util Functions ########### ###
+    # These are used to format numbers and aren't terribly interesting
+    
+    # convert integer to Roman numeral. From http://www.diveintopython.net/unit_testing/romantest.html
+    toRoman = (num) ->
+      romanNumeralMap = [
+        ['M',  1000]
+        ['CM', 900]
+        ['D',  500]
+        ['CD', 400]
+        ['C',  100]
+        ['XC', 90]
+        ['L',  50]
+        ['XL', 40]
+        ['X',  10]
+        ['IX', 9]
+        ['V',  5]
+        ['IV', 4]
+        ['I',  1]
+      ]
+      if not (0 < num < 5000)
+        console.error 'number out of range (must be 1..4999)'
+        return num
+      
+      result = ''
+      for [numeral, integer] in romanNumeralMap
+        while num >= integer
+          result += numeral
+          num -= integer
+      result
+
+    # Options are defined by http://www.w3.org/TR/CSS21/generate.html#propdef-list-style-type
+    numberingStyle = (num, style='decimal') ->
+      switch style
+        when 'decimal-leading-zero'
+          if num < 10 then "0#{num}"
+          else num
+        when 'lower-roman'
+          toRoman(num).toLowerCase()
+        when 'upper-roman'
+          toRoman(num)
+        when 'lower-latin'
+          if not (1 <= num <= 26)
+            console.error 'number out of range (must be 1...26)'
+          String.fromCharCode(num + 96)
+        when 'upper-latin'
+          if not (1 <= num <= 26)
+            console.error 'number out of range (must be 1...26)'
+          String.fromCharCode(num + 64)
+        when 'decimal'
+          num
+        else 
+          console.warn "Counter numbering not supported for list type #{style}. Using decimal."
+          num
+
+
+
+    ### ############### Override lesscss AST nodes ############### ###
+    
     tree = less.tree # For when I blindly copy code from lesscss
     # Bind some eval overrides so we can do work
     less.tree.Ruleset.prototype.eval = (env) ->
@@ -228,15 +288,18 @@ $().ready () ->
           $node = $(node)
           newEnv =
             doNotDefer: $node
-            frames:[{_context:$node}]
           id = expressionsToString(newEnv, args[0])
           interestingNodes[id] = false
         return new DeferredEvaluationNode( (env) ->
           id = expressionsToString(env, args[0])
           counterName = args[1].eval(env).value
+          style = 'decimal'
+          if args.length > 2
+            style = args[2].eval(env).value
           if id of interestingNodes and interestingNodes[id]
             counters = interestingNodes[id].data('counters') or {}
-            new tree.Anonymous(counters[counterName] || 0)
+            val = counters[counterName] || 0
+            new tree.Anonymous(numberingStyle(val, style))
         ).eval(env)
 
       'target-text': (env, args) ->
@@ -269,8 +332,12 @@ $().ready () ->
         return new DeferredEvaluationNode( (env) ->
           $context = env.doNotDefer
           name = args[0].eval(env).value
+          # Defined by http://www.w3.org/TR/CSS21/generate.html#propdef-list-style-type
+          style = 'decimal'
+          if args.length > 1
+            style = args[1].eval(env).value
           val = $context.data('counters')[name]
-          new tree.Anonymous(val or 0)
+          new tree.Anonymous(numberingStyle(val or 0, style))
         ).eval(env)
     
  
