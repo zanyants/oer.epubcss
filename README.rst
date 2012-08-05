@@ -108,5 +108,13 @@ This package requires:
 - http://coffeescript.org
 
 Then, run the following commands::
-  coffee -c epubcss.coffee
-  phantomjs epubcss /path/to/less/file "file:///URL/to/htmlfile.xhtml"
+  coffee -c epubcss.coffee test/test.coffee
+  phantomjs epubcss.js /path/to/less/file "file:///URL/to/htmlfile.xhtml"
+
+Or:
+- point your browser to ./test/index.html
+- open up the debugging console
+- copy the contents of ./test/test.less and paste it into the textarea
+- Press Tab to start the processing
+
+When it's done, text in yellow is content that was added/changed by the script.
