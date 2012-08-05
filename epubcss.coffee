@@ -42,6 +42,7 @@ page.open encodeURI(address), (status) ->
   console.log "Loaded? #{status}. Took #{((new Date().getTime()) - startTime) / 1000}s"
   console.log "jQuery loaded..."  if page.injectJs(fs.workingDirectory + '/lib/jquery.js')
   console.log "lesscss loaded..."  if page.injectJs(fs.workingDirectory + '/lib/less-1.3.0.js')
+  console.log "custom selectors loaded..."  if page.injectJs(fs.workingDirectory + '/custom.js')
   console.log "XHTML-serializer loaded..."  if page.injectJs(fs.workingDirectory + '/lib/dom-to-xhtml.js')
 
   num = page.evaluate((lessFile) ->
@@ -172,7 +173,7 @@ page.open encodeURI(address), (status) ->
             $context = frame._context
             parentCSS = frame._parentCSS
         if not $context
-          $context = $(document)
+          $context = $('html')
           parentCSS = ''
         
         # TODO: Shortcut: If the context is empty we don't need to recurse
@@ -188,7 +189,8 @@ page.open encodeURI(address), (status) ->
             css = selector.toCSS()
             
             # Remove pseudoselectors
-            css2 = css.replace(/::[a-z-]+/, '')
+            css2 = css.replace(/::?before/, '')
+            css2 = css2.replace(/::?after/, '')
     
             startTime = new Date().getTime()
             # If the selector does not start with a space then it is a filter
@@ -228,8 +230,8 @@ page.open encodeURI(address), (status) ->
     
             endTime = new Date().getTime()
             took = endTime - startTime
-            #if $found.length or took > 10000
-            console.log "Selector [#{parentCSS}] / [#{css}] (#{took/1000}s)  Matches: #{$found.length}"
+            if $found.length or took > 10000
+              console.log "Selector [#{parentCSS}] / [#{css}] (#{took/1000}s)  Matches: #{$found.length}"
   
           # Push the new set of elements onto the stack
           @_context = $newContext
@@ -386,6 +388,31 @@ page.open encodeURI(address), (status) ->
           val = $context.data('counters')[name]
           new tree.Anonymous(numberingStyle(val or 0, style))
         ).eval(env)
+      'string': (env, args) ->
+        # Look up the counter in the stored counter state
+        return new DeferredEvaluationNode( (env) ->
+          $context = env.doNotDefer
+          name = args[0].eval(env).value
+          val = $context.data('strings')[name]
+          new tree.Anonymous(val or '')
+        ).eval(env)
+      # string-set allows content(...)
+      'content': (env, args) ->
+        return new DeferredEvaluationNode( (env) ->
+          $node = env.doNotDefer
+          contentType = (args[0] || {value: 'content'}).value
+          ret = null
+          switch contentType
+            when 'content-element' then ret = $node.children(":not(.#{PSEUDO_CLASS})").text()
+            when 'content-before' then ret = $node.children(".#{PSEUDO_CLASS} .before").text()
+            when 'content-after' then ret = $node.children(".#{PSEUDO_CLASS} .after").text()
+            when 'content-first-letter' then ret = $node.children(":not(.#{PSEUDO_CLASS})").text().substring(0,1)
+            else ret = $node.text()
+          new tree.Anonymous(ret)
+        ).eval(env)
+      # content: allows leader(' . ') for generating '.............' in TOCs
+      'leader': (env, args) ->
+        new tree.Anonymous(args[0])
     
  
     storeIt = (cmd) -> ($el, value) ->
@@ -401,6 +428,7 @@ page.open encodeURI(address), (status) ->
           $el.remove()
         else
           #console.log 'Setting display to something other than none; ignoring'
+      'string-set': storeIt 'string-set'
 
     # There are 2 types of calls in lesscss:
     # 1. Macros that are expanded
@@ -492,8 +520,11 @@ page.open encodeURI(address), (status) ->
 
           counters
 
-        console.log "----- Looping over all nodes to squirrel away counters to be looked up later (also, autogenerate classes)"
+        console.log "----- Looping over all nodes to squirrel away counters to be looked up later"
         counterState = {}
+        stringState = {}
+        
+        cssHashes = {}
         cssClasses = {}
         cssClassPrefix = 'autogen-'
         cssClassNum = 0
@@ -507,11 +538,26 @@ page.open encodeURI(address), (status) ->
               counters = parseCounters($node.data('counter-increment'), 1)
               for counter, val of counters
                 counterState[counter] = (counterState[counter] || 0) + val
+            # String-set works much like "content: " at this point:
+            # We need to evaluate the contents of the string to set
+            # Some of it may contain a counter() or a content(before)
+            if $node.data('string-set')
+              stringsExp = $node.data('string-set')
+              env =
+                doNotDefer: $node
+                frames: [
+                  _context: $node
+                ]
+              name = expressionsToString(env, stringsExp.value[0])
+              val = expressionsToString(env, stringsExp.value[1])
+              stringState[name] = val
+
   
             # If this node is an interestingNode then squirrel away the current counter state
             isInteresting = '#' + $node.attr('id') of interestingNodes
             if isInteresting or $node.data('content')
               $node.data 'counters', ($.extend {}, counterState)
+              $node.data 'strings', ($.extend {}, stringState)
             if isInteresting
               interestingNodes['#' + $node.attr('id')] = $node
 
@@ -520,9 +566,13 @@ page.open encodeURI(address), (status) ->
               style = $node.data('style')
               $node.data('style', null) # Detatch the style
               hash = JSON.stringify(style)
-              $node.addClass(hash)
-              if hash not of cssClasses
-                cssClasses[hash] = cssClassPrefix + (cssClassNum++)
+              if hash not of cssHashes
+                name = cssClassPrefix + (cssClassNum++)
+                cssHashes[hash] = name
+                cssClasses[name] = style
+              else
+                name = cssHashes[hash]
+              $node.addClass(name)
 
         console.log "----- Looping over all nodes and updating based on content: "
         preorderTraverse $('body'), ($node) ->
@@ -536,7 +586,7 @@ page.open encodeURI(address), (status) ->
                 ]
               expr = $node.data('content')
               newContent = expressionsToString(env, expr)
-              console.log "New Content: '#{newContent}' from", expr
+              # console.log "New Content: '#{newContent}' from", expr
               # Keep the pseudo elements
               pseudoBefore = $node.children('.before')
               pseudoAfter = $node.children('.after')
@@ -546,6 +596,17 @@ page.open encodeURI(address), (status) ->
               $node.append pseudoAfter
         
         console.log 'Done processing!'
+        
+        ary = []
+        for name, props of cssClasses
+          vals = []
+          for propName, propVal of props
+            vals.push("#{propName}: #{propVal};")
+          ary.push ".#{name} { #{vals.join('')} }"
+        $('<style type="text/css"></style>').append(ary.join('\n')).appendTo('body')
+
+
+
 
         # Hack to serialize out the HTML (sent to the console)
         console.log 'Serializing (X)HTML back out from WebKit...'
