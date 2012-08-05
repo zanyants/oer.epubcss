@@ -109,7 +109,7 @@ This package requires:
 
 Then, run the following commands::
   coffee -c epubcss.coffee test/test.coffee
-  phantomjs epubcss.js /path/to/less/file "file:///URL/to/htmlfile.xhtml"
+  phantomjs epubcss.js /path/to/less/file "file:///URL/to/htmlfile.xhtml" ./output.xhtml
 
 Or:
 - point your browser to ./test/index.html
