@@ -125,7 +125,7 @@ $().ready () ->
             $context = frame._context
             parentCSS = frame._parentCSS
         if not $context
-          $context = $(document)
+          $context = $('html')
           parentCSS = ''
         
         # TODO: Shortcut: If the context is empty we don't need to recurse
@@ -182,8 +182,8 @@ $().ready () ->
     
             endTime = new Date().getTime()
             took = endTime - startTime
-            #if $found.length or took > 10000
-            console.log "Selector [#{parentCSS}] / [#{css}] (#{took/1000}s)  Matches: #{$found.length}"
+            if $found.length or took > 10000
+              console.log "Selector [#{parentCSS}] / [#{css}] (#{took/1000}s)  Matches: #{$found.length}"
   
           # Push the new set of elements onto the stack
           @_context = $newContext
@@ -340,6 +340,31 @@ $().ready () ->
           val = $context.data('counters')[name]
           new tree.Anonymous(numberingStyle(val or 0, style))
         ).eval(env)
+      'string': (env, args) ->
+        # Look up the counter in the stored counter state
+        return new DeferredEvaluationNode( (env) ->
+          $context = env.doNotDefer
+          name = args[0].eval(env).value
+          val = $context.data('strings')[name]
+          new tree.Anonymous(val or '')
+        ).eval(env)
+      # string-set allows content(...)
+      'content': (env, args) ->
+        return new DeferredEvaluationNode( (env) ->
+          $node = env.doNotDefer
+          contentType = (args[0] || {value: 'content'}).value
+          ret = null
+          switch contentType
+            when 'content-element' then ret = $node.children(":not(.#{PSEUDO_CLASS})").text()
+            when 'content-before' then ret = $node.children(".#{PSEUDO_CLASS} .before").text()
+            when 'content-after' then ret = $node.children(".#{PSEUDO_CLASS} .after").text()
+            when 'content-first-letter' then ret = $node.children(":not(.#{PSEUDO_CLASS})").text().substring(0,1)
+            else ret = $node.text()
+          new tree.Anonymous(ret)
+        ).eval(env)
+      # content: allows leader(' . ') for generating '.............' in TOCs
+      'leader': (env, args) ->
+        new tree.Anonymous(args[0])
     
  
     storeIt = (cmd) -> ($el, value) ->
@@ -355,6 +380,7 @@ $().ready () ->
           $el.remove()
         else
           #console.log 'Setting display to something other than none; ignoring'
+      'string-set': storeIt 'string-set'
 
     # There are 2 types of calls in lesscss:
     # 1. Macros that are expanded
@@ -445,6 +471,9 @@ $().ready () ->
 
         console.log "----- Looping over all nodes to squirrel away counters to be looked up later"
         counterState = {}
+        stringState = {}
+        
+        cssHashes = {}
         cssClasses = {}
         cssClassPrefix = 'autogen-'
         cssClassNum = 0
@@ -458,11 +487,26 @@ $().ready () ->
               counters = parseCounters($node.data('counter-increment'), 1)
               for counter, val of counters
                 counterState[counter] = (counterState[counter] || 0) + val
+            # String-set works much like "content: " at this point:
+            # We need to evaluate the contents of the string to set
+            # Some of it may contain a counter() or a content(before)
+            if $node.data('string-set')
+              stringsExp = $node.data('string-set')
+              env =
+                doNotDefer: $node
+                frames: [
+                  _context: $node
+                ]
+              name = expressionsToString(env, stringsExp.value[0])
+              val = expressionsToString(env, stringsExp.value[1])
+              stringState[name] = val
+
   
             # If this node is an interestingNode then squirrel away the current counter state
             isInteresting = '#' + $node.attr('id') of interestingNodes
             if isInteresting or $node.data('content')
               $node.data 'counters', ($.extend {}, counterState)
+              $node.data 'strings', ($.extend {}, stringState)
             if isInteresting
               interestingNodes['#' + $node.attr('id')] = $node
 
@@ -471,9 +515,13 @@ $().ready () ->
               style = $node.data('style')
               $node.data('style', null) # Detatch the style
               hash = JSON.stringify(style)
-              $node.addClass(hash)
-              if hash not of cssClasses
-                cssClasses[hash] = cssClassPrefix + (cssClassNum++)
+              if hash not of cssHashes
+                name = cssClassPrefix + (cssClassNum++)
+                cssHashes[hash] = name
+                cssClasses[name] = style
+              else
+                name = cssHashes[hash]
+              $node.addClass(name)
 
         console.log "----- Looping over all nodes and updating based on content: "
         preorderTraverse $('body'), ($node) ->
@@ -487,7 +535,7 @@ $().ready () ->
                 ]
               expr = $node.data('content')
               newContent = expressionsToString(env, expr)
-              console.log "New Content: '#{newContent}' from", expr
+              # console.log "New Content: '#{newContent}' from", expr
               # Keep the pseudo elements
               pseudoBefore = $node.children('.before')
               pseudoAfter = $node.children('.after')
@@ -497,3 +545,11 @@ $().ready () ->
               $node.append pseudoAfter
         
         console.log 'Done processing!'
+        
+        ary = []
+        for name, props of cssClasses
+          vals = []
+          for propName, propVal of props
+            vals.push("#{propName}: #{propVal};")
+          ary.push ".#{name} { #{vals.join('')} }"
+        $('<style type="text/css"></style>').append(ary.join('\n')).appendTo('head')

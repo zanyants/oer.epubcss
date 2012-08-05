@@ -117,7 +117,7 @@
         }
       }
       if (!$context) {
-        $context = $(document);
+        $context = $('html');
         parentCSS = '';
       }
       $newContext = $('NOT-VALID-TAG');
@@ -167,7 +167,9 @@
           $newContext = $newContext.add($found);
           endTime = new Date().getTime();
           took = endTime - startTime;
-          console.log("Selector [" + parentCSS + "] / [" + css + "] (" + (took / 1000) + "s)  Matches: " + $found.length);
+          if ($found.length || took > 10000) {
+            console.log("Selector [" + parentCSS + "] / [" + css + "] (" + (took / 1000) + "s)  Matches: " + $found.length);
+          }
         }
         this._context = $newContext;
         this._parentCSS = "" + parentCSS + " | " + css + " (" + $newContext.length + ")";
@@ -356,6 +358,45 @@
           val = $context.data('counters')[name];
           return new tree.Anonymous(numberingStyle(val || 0, style));
         }).eval(env);
+      },
+      'string': function(env, args) {
+        return new DeferredEvaluationNode(function(env) {
+          var $context, name, val;
+          $context = env.doNotDefer;
+          name = args[0].eval(env).value;
+          val = $context.data('strings')[name];
+          return new tree.Anonymous(val || '');
+        }).eval(env);
+      },
+      'content': function(env, args) {
+        return new DeferredEvaluationNode(function(env) {
+          var $node, contentType, ret;
+          $node = env.doNotDefer;
+          contentType = (args[0] || {
+            value: 'content'
+          }).value;
+          ret = null;
+          switch (contentType) {
+            case 'content-element':
+              ret = $node.children(":not(." + PSEUDO_CLASS + ")").text();
+              break;
+            case 'content-before':
+              ret = $node.children("." + PSEUDO_CLASS + " .before").text();
+              break;
+            case 'content-after':
+              ret = $node.children("." + PSEUDO_CLASS + " .after").text();
+              break;
+            case 'content-first-letter':
+              ret = $node.children(":not(." + PSEUDO_CLASS + ")").text().substring(0, 1);
+              break;
+            default:
+              ret = $node.text();
+          }
+          return new tree.Anonymous(ret);
+        }).eval(env);
+      },
+      'leader': function(env, args) {
+        return new tree.Anonymous(args[0]);
       }
     };
     storeIt = function(cmd) {
@@ -373,7 +414,8 @@
         } else {
 
         }
-      }
+      },
+      'string-set': storeIt('string-set')
     };
     _oldCallPrototype = less.tree.Call.prototype.eval;
     less.tree.Call.prototype.eval = function(env) {
@@ -415,7 +457,7 @@
     p = less.Parser();
     return $('.lesscss').on('change', function() {
       return p.parse($('.lesscss').val(), function(err, lessNode) {
-        var counterState, cssClassNum, cssClassPrefix, cssClasses, env, id, parseCounters;
+        var ary, counterState, cssClassNum, cssClassPrefix, cssClasses, cssHashes, env, id, name, parseCounters, propName, propVal, props, stringState, vals;
         env = {
           frames: []
         };
@@ -456,11 +498,13 @@
         };
         console.log("----- Looping over all nodes to squirrel away counters to be looked up later");
         counterState = {};
+        stringState = {};
+        cssHashes = {};
         cssClasses = {};
         cssClassPrefix = 'autogen-';
         cssClassNum = 0;
         preorderTraverse($('body'), function($node) {
-          var counter, counters, hash, isInteresting, style, val;
+          var counter, counters, hash, isInteresting, name, stringsExp, style, val;
           if ($node.data('counter-reset')) {
             counters = parseCounters($node.data('counter-reset'), 0);
             for (counter in counters) {
@@ -475,19 +519,38 @@
               counterState[counter] = (counterState[counter] || 0) + val;
             }
           }
+          if ($node.data('string-set')) {
+            stringsExp = $node.data('string-set');
+            env = {
+              doNotDefer: $node,
+              frames: [
+                {
+                  _context: $node
+                }
+              ]
+            };
+            name = expressionsToString(env, stringsExp.value[0]);
+            val = expressionsToString(env, stringsExp.value[1]);
+            stringState[name] = val;
+          }
           isInteresting = '#' + $node.attr('id') in interestingNodes;
           if (isInteresting || $node.data('content')) {
             $node.data('counters', $.extend({}, counterState));
+            $node.data('strings', $.extend({}, stringState));
           }
           if (isInteresting) interestingNodes['#' + $node.attr('id')] = $node;
           if ($node.data('style')) {
             style = $node.data('style');
             $node.data('style', null);
             hash = JSON.stringify(style);
-            $node.addClass(hash);
-            if (!(hash in cssClasses)) {
-              return cssClasses[hash] = cssClassPrefix + (cssClassNum++);
+            if (!(hash in cssHashes)) {
+              name = cssClassPrefix + (cssClassNum++);
+              cssHashes[hash] = name;
+              cssClasses[name] = style;
+            } else {
+              name = cssHashes[hash];
             }
+            return $node.addClass(name);
           }
         });
         console.log("----- Looping over all nodes and updating based on content: ");
@@ -505,7 +568,6 @@
             };
             expr = $node.data('content');
             newContent = expressionsToString(env, expr);
-            console.log("New Content: '" + newContent + "' from", expr);
             pseudoBefore = $node.children('.before');
             pseudoAfter = $node.children('.after');
             $node.contents().remove();
@@ -514,7 +576,18 @@
             return $node.append(pseudoAfter);
           }
         });
-        return console.log('Done processing!');
+        console.log('Done processing!');
+        ary = [];
+        for (name in cssClasses) {
+          props = cssClasses[name];
+          vals = [];
+          for (propName in props) {
+            propVal = props[propName];
+            vals.push("" + propName + ": " + propVal + ";");
+          }
+          ary.push("." + name + " { " + (vals.join('')) + " }");
+        }
+        return $('<style type="text/css"></style>').append(ary.join('\n')).appendTo('head');
       });
     });
   });
