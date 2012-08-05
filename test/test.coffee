@@ -552,4 +552,4 @@ $().ready () ->
           for propName, propVal of props
             vals.push("#{propName}: #{propVal};")
           ary.push ".#{name} { #{vals.join('')} }"
-        $('<style type="text/css"></style>').append(ary.join('\n')).appendTo('head')
+        $('<style type="text/css"></style>').append(ary.join('\n')).appendTo('body')

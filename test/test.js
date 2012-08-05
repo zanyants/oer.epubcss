@@ -587,7 +587,7 @@
           }
           ary.push("." + name + " { " + (vals.join('')) + " }");
         }
-        return $('<style type="text/css"></style>').append(ary.join('\n')).appendTo('head');
+        return $('<style type="text/css"></style>').append(ary.join('\n')).appendTo('body');
       });
     });
   });
