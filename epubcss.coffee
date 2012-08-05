@@ -5,14 +5,25 @@ page = require("webpage").create()
 page.onConsoleMessage = (msg, line, source) ->
   console.log "console> " + msg # + " @ line: " + line
 
-if system.args.length != 3
+if system.args.length != 4
   console.error "This program takes exactly 2 arguments:"
   console.error "URL (for example 'file:///home/my-home/file.xhtml)"
   console.error "CSS/LESS file (for example '/home/my-home/style.css)"
+  console.error "Output (X)HTML file"
   phantom.exit 1
 
-address = system.args[2]
+
 cssFile = system.args[1]
+address = system.args[2]
+outputFile = fs.open(system.args[3], 'w')
+outputFile.write '<html xmlns="http://www.w3.org/1999/xhtml">'
+
+lines = 0
+page.onAlert = (msg) ->
+  if lines++ > 100000
+    console.log 'Still Serializing HTML...'
+    lines = 0
+  outputFile.write msg
 
 console.log "Reading CSS file at: #{cssFile}"
 lessFile = fs.read(cssFile, 'utf-8')
@@ -31,6 +42,7 @@ page.open encodeURI(address), (status) ->
   console.log "Loaded? #{status}. Took #{((new Date().getTime()) - startTime) / 1000}s"
   console.log "jQuery loaded..."  if page.injectJs(fs.workingDirectory + '/lib/jquery.js')
   console.log "lesscss loaded..."  if page.injectJs(fs.workingDirectory + '/lib/less-1.3.0.js')
+  console.log "XHTML-serializer loaded..."  if page.injectJs(fs.workingDirectory + '/lib/dom-to-xhtml.js')
 
   num = page.evaluate((lessFile) ->
   
@@ -407,10 +419,17 @@ page.open encodeURI(address), (status) ->
         _oldCallPrototype.apply @, [ env ]
     
     less.tree.Rule.prototype.eval = (env) ->
-      if @name of complexRules
-        for el in env.frames[0]._context
-          $el = $(el)
+      for el in env.frames[0]._context
+        $el = $(el)
+        value = @value.eval(env)
+        
+        if @name of complexRules
           complexRules[@name] $el, @value.eval(env)
+        else
+          # Set a style dictionary if it doesn't already exist
+          $el.data('style', {}) if not $el.data('style')
+          style = $el.data('style')
+          style[@name] = value.toCSS(env)
       new(tree.Rule)(@name, @value.eval(env), @important,@index, @inline)
 
 
@@ -473,8 +492,12 @@ page.open encodeURI(address), (status) ->
 
           counters
 
-        console.log "----- Looping over all nodes to squirrel away counters to be looked up later"
+        console.log "----- Looping over all nodes to squirrel away counters to be looked up later (also, autogenerate classes)"
         counterState = {}
+        cssClasses = {}
+        cssClassPrefix = 'autogen-'
+        cssClassNum = 0
+
         preorderTraverse $('body'), ($node) ->
             if $node.data('counter-reset')
               counters = parseCounters($node.data('counter-reset'), 0)
@@ -492,8 +515,16 @@ page.open encodeURI(address), (status) ->
             if isInteresting
               interestingNodes['#' + $node.attr('id')] = $node
 
+            # Generate custom classes that don't match            
+            if $node.data('style')
+              style = $node.data('style')
+              $node.data('style', null) # Detatch the style
+              hash = JSON.stringify(style)
+              $node.addClass(hash)
+              if hash not of cssClasses
+                cssClasses[hash] = cssClassPrefix + (cssClassNum++)
+
         console.log "----- Looping over all nodes and updating based on content: "
-        counterState = {}
         preorderTraverse $('body'), ($node) ->
             # If there is a content: _____ then replace the text contents of the node (not pseudo elements)
             if $node.data('content')
@@ -516,7 +547,15 @@ page.open encodeURI(address), (status) ->
         
         console.log 'Done processing!'
 
-
+        # Hack to serialize out the HTML (sent to the console)
+        console.log 'Serializing (X)HTML back out from WebKit...'
+        aryHack =
+          push: (str) -> alert str
+        
+        window.dom2xhtml.serialize($('body')[0], aryHack)
 
   , lessFile)
+  outputFile.flush()
+  outputFile.write '</html>'
+  outputFile.close()
   phantom.exit()
