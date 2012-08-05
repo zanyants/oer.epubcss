@@ -141,7 +141,8 @@ $().ready () ->
             css = selector.toCSS()
             
             # Remove pseudoselectors
-            css2 = css.replace(/::[a-z-]+/, '')
+            css2 = css.replace(/::?before/, '')
+            css2 = css2.replace(/::?after/, '')
     
             startTime = new Date().getTime()
             # If the selector does not start with a space then it is a filter
@@ -372,10 +373,17 @@ $().ready () ->
         _oldCallPrototype.apply @, [ env ]
     
     less.tree.Rule.prototype.eval = (env) ->
-      if @name of complexRules
-        for el in env.frames[0]._context
-          $el = $(el)
+      for el in env.frames[0]._context
+        $el = $(el)
+        value = @value.eval(env)
+        
+        if @name of complexRules
           complexRules[@name] $el, @value.eval(env)
+        else
+          # Set a style dictionary if it doesn't already exist
+          $el.data('style', {}) if not $el.data('style')
+          style = $el.data('style')
+          style[@name] = value.toCSS(env)
       new(tree.Rule)(@name, @value.eval(env), @important,@index, @inline)
 
 
@@ -437,6 +445,10 @@ $().ready () ->
 
         console.log "----- Looping over all nodes to squirrel away counters to be looked up later"
         counterState = {}
+        cssClasses = {}
+        cssClassPrefix = 'autogen-'
+        cssClassNum = 0
+
         preorderTraverse $('body'), ($node) ->
             if $node.data('counter-reset')
               counters = parseCounters($node.data('counter-reset'), 0)
@@ -454,8 +466,16 @@ $().ready () ->
             if isInteresting
               interestingNodes['#' + $node.attr('id')] = $node
 
+            # Generate custom classes that don't match            
+            if $node.data('style')
+              style = $node.data('style')
+              $node.data('style', null) # Detatch the style
+              hash = JSON.stringify(style)
+              $node.addClass(hash)
+              if hash not of cssClasses
+                cssClasses[hash] = cssClassPrefix + (cssClassNum++)
+
         console.log "----- Looping over all nodes and updating based on content: "
-        counterState = {}
         preorderTraverse $('body'), ($node) ->
             # If there is a content: _____ then replace the text contents of the node (not pseudo elements)
             if $node.data('content')

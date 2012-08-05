@@ -127,7 +127,8 @@
         for (_j = 0, _len2 = _ref2.length; _j < _len2; _j++) {
           selector = _ref2[_j];
           css = selector.toCSS();
-          css2 = css.replace(/::[a-z-]+/, '');
+          css2 = css.replace(/::?before/, '');
+          css2 = css2.replace(/::?after/, '');
           startTime = new Date().getTime();
           if (css2[0] === ' ') {
             $found = $context.find(css2.trim());
@@ -387,13 +388,18 @@
       }
     };
     less.tree.Rule.prototype.eval = function(env) {
-      var $el, el, _i, _len, _ref;
-      if (this.name in complexRules) {
-        _ref = env.frames[0]._context;
-        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-          el = _ref[_i];
-          $el = $(el);
+      var $el, el, style, value, _i, _len, _ref;
+      _ref = env.frames[0]._context;
+      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+        el = _ref[_i];
+        $el = $(el);
+        value = this.value.eval(env);
+        if (this.name in complexRules) {
           complexRules[this.name]($el, this.value.eval(env));
+        } else {
+          if (!$el.data('style')) $el.data('style', {});
+          style = $el.data('style');
+          style[this.name] = value.toCSS(env);
         }
       }
       return new tree.Rule(this.name, this.value.eval(env), this.important, this.index, this.inline);
@@ -409,7 +415,7 @@
     p = less.Parser();
     return $('.lesscss').on('change', function() {
       return p.parse($('.lesscss').val(), function(err, lessNode) {
-        var counterState, env, id, parseCounters;
+        var counterState, cssClassNum, cssClassPrefix, cssClasses, env, id, parseCounters;
         env = {
           frames: []
         };
@@ -450,8 +456,11 @@
         };
         console.log("----- Looping over all nodes to squirrel away counters to be looked up later");
         counterState = {};
+        cssClasses = {};
+        cssClassPrefix = 'autogen-';
+        cssClassNum = 0;
         preorderTraverse($('body'), function($node) {
-          var counter, counters, isInteresting, val;
+          var counter, counters, hash, isInteresting, style, val;
           if ($node.data('counter-reset')) {
             counters = parseCounters($node.data('counter-reset'), 0);
             for (counter in counters) {
@@ -470,12 +479,18 @@
           if (isInteresting || $node.data('content')) {
             $node.data('counters', $.extend({}, counterState));
           }
-          if (isInteresting) {
-            return interestingNodes['#' + $node.attr('id')] = $node;
+          if (isInteresting) interestingNodes['#' + $node.attr('id')] = $node;
+          if ($node.data('style')) {
+            style = $node.data('style');
+            $node.data('style', null);
+            hash = JSON.stringify(style);
+            $node.addClass(hash);
+            if (!(hash in cssClasses)) {
+              return cssClasses[hash] = cssClassPrefix + (cssClassNum++);
+            }
           }
         });
         console.log("----- Looping over all nodes and updating based on content: ");
-        counterState = {};
         preorderTraverse($('body'), function($node) {
           var expr, newContent, pseudoAfter, pseudoBefore;
           if ($node.data('content')) {
