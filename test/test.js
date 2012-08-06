@@ -1,595 +1,120 @@
 (function() {
+  var runTest;
 
-  $().ready(function() {
-    /*
-        What does this file do?
-        -----------------------
-        
-        This parses a lesscss (or plain CSS) file and emulates certain rules that aren't supported by some HTML browsers
-        There are several pieces:
-        
-        1. Replace lesscss node evaluation for some nodes:
-        
-        LessCSS offers a great AST for navigating through CSS.
-        It has a stack (using env.frames that keeps scoped information)
-        We add an additional variable, _context that stores a jQuery set of elements that are currently matched
-        So, for a ruleset (selector and rules) the Ruleset.eval maintains a list of elements that currently match the selector.
-        Rule.eval is modified to understand rules like counter-increment: and content:
-        Call.eval is modified to emulate functions like target-counter(), attr(), etc
-        
-        2. Special LessCSS Nodes:
-        
-        Some of these functions cannot be evaluated yet so their evaluation is deferred until later using DeferredEvaluationNode
-        (DeferredEvaluationNode.eval() will return itself when it cannot evaluate to something)
-        
-        The tree.Anonymous node is used to return strings (like the result of counter(chapter) or target-text() )
-        
-        3. Pseudo Elements ::before and ::after
-        
-        Pseudo elements are "emulated" because their content: may not be supported by the browser (ie "content: target-text(attr(href))" )
-        Also, EPUB documents do not support ::before and ::after
-        Pseudo elements are converted to spans with a special class defined by PSEUDO_CLASS.
-        
-        4. Loops over the document:
-        
-        The DOM is looped over 3 times:
-        - The 1st traversal is done using LessCSS selectors and is used to:
-          a. Expand pseudo elements
-          b. Remove elements with "display: none"
-          c. Sprinkle the special CSS rules on elements (stored in jQuery data())
-          d. Find which nodes will need to be looked up later using target-text or target-counter
-    
-        - The 2nd traversal is over the entire DOM in order and calculates the state of all the counters
-        - The 3rd traversal is also over the entire DOM in order and replaces the content of elements that have a 'content: ...' rule.
-    */
-    var DEBUG_MODIFIED_CLASS, DeferredEvaluationNode, PSEUDO_CLASS, PSEUDO_ELEMENT, complexRules, evaluators, expressionsToString, interestingNodes, numberingStyle, p, preorderTraverse, storeIt, toRoman, tree, _oldCallPrototype;
-    DEBUG_MODIFIED_CLASS = 'debug-epubcss';
-    PSEUDO_CLASS = "pseudo-element";
-    PSEUDO_ELEMENT = "<span class='" + PSEUDO_CLASS + "'></span>";
-    /*
-    */
-    toRoman = function(num) {
-      var integer, numeral, result, romanNumeralMap, _i, _len, _ref;
-      romanNumeralMap = [['M', 1000], ['CM', 900], ['D', 500], ['CD', 400], ['C', 100], ['XC', 90], ['L', 50], ['XL', 40], ['X', 10], ['IX', 9], ['V', 5], ['IV', 4], ['I', 1]];
-      if (!((0 < num && num < 5000))) {
-        console.error('number out of range (must be 1..4999)');
-        return num;
-      }
-      result = '';
-      for (_i = 0, _len = romanNumeralMap.length; _i < _len; _i++) {
-        _ref = romanNumeralMap[_i], numeral = _ref[0], integer = _ref[1];
-        while (num >= integer) {
-          result += numeral;
-          num -= integer;
-        }
-      }
-      return result;
-    };
-    numberingStyle = function(num, style) {
-      if (style == null) style = 'decimal';
-      switch (style) {
-        case 'decimal-leading-zero':
-          if (num < 10) {
-            return "0" + num;
-          } else {
-            return num;
-          }
-          break;
-        case 'lower-roman':
-          return toRoman(num).toLowerCase();
-        case 'upper-roman':
-          return toRoman(num);
-        case 'lower-latin':
-          if (!((1 <= num && num <= 26))) {
-            console.error('number out of range (must be 1...26)');
-          }
-          return String.fromCharCode(num + 96);
-        case 'upper-latin':
-          if (!((1 <= num && num <= 26))) {
-            console.error('number out of range (must be 1...26)');
-          }
-          return String.fromCharCode(num + 64);
-        case 'decimal':
-          return num;
-        default:
-          console.warn("Counter numbering not supported for list type " + style + ". Using decimal.");
-          return num;
-      }
-    };
-    /*
-    */
-    tree = less.tree;
-    less.tree.Ruleset.prototype.eval = function(env) {
-      var $context, $found, $newContext, css, css2, endTime, frame, i, parentCSS, pseudos, rule, ruleset, selector, selectors, skips, startTime, took, _i, _j, _len, _len2, _ref, _ref2;
-      skips = 0;
-      _ref = env.frames;
-      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-        frame = _ref[_i];
-        if (skips > 0) {
-          skips -= 1;
-          continue;
-        }
-        if (less.tree.mixin.Definition.prototype.isPrototypeOf(frame)) {
-          skips = frame.frames.length + 1;
-        } else if (frame._context && !$context) {
-          $context = frame._context;
-          parentCSS = frame._parentCSS;
-        }
-      }
-      if (!$context) {
-        $context = $('html');
-        parentCSS = '';
-      }
-      $newContext = $('NOT-VALID-TAG');
-      if (this.selectors && this.selectors.length) {
-        css = '';
-        _ref2 = this.selectors;
-        for (_j = 0, _len2 = _ref2.length; _j < _len2; _j++) {
-          selector = _ref2[_j];
-          css = selector.toCSS();
-          css2 = css.replace(/::?before/, '');
-          css2 = css2.replace(/::?after/, '');
-          startTime = new Date().getTime();
-          if (css2[0] === ' ') {
-            $found = $context.find(css2.trim());
-          } else {
-            $found = $context.filter(css2.trim());
-          }
-          if (css !== css2 && $found.length) {
-            if (css.indexOf(':before') >= 0) {
-              pseudos = [];
-              $found.each(function() {
-                var $el, pseudo;
-                $el = $(this);
-                pseudo = $el.children("." + PSEUDO_CLASS + ".before");
-                if (pseudo.length === 0) {
-                  pseudo = $(PSEUDO_ELEMENT).addClass('before');
-                }
-                return pseudos.push(pseudo.prependTo($el));
-              });
-              $found = pseudos;
-            } else if (css.indexOf(':after') >= 0) {
-              pseudos = [];
-              $found.each(function() {
-                var $el, pseudo;
-                $el = $(this);
-                pseudo = $el.children("." + PSEUDO_CLASS + ".after");
-                if (pseudo.length === 0) {
-                  pseudo = $(PSEUDO_ELEMENT).addClass('after');
-                }
-                return pseudos.push(pseudo.appendTo($el));
-              });
-              $found = pseudos;
-            } else {
-              console.error("Weird pseudo-selector found: " + css);
-            }
-          }
-          $newContext = $newContext.add($found);
-          endTime = new Date().getTime();
-          took = endTime - startTime;
-          if ($found.length || took > 10000) {
-            console.log("Selector [" + parentCSS + "] / [" + css + "] (" + (took / 1000) + "s)  Matches: " + $found.length);
-          }
-        }
-        this._context = $newContext;
-        this._parentCSS = "" + parentCSS + " | " + css + " (" + $newContext.length + ")";
-      } else {
-        this._context = $context;
-        this._parentCSS = parentCSS;
-      }
-      /* Run the original eval
-      */
-      selectors = this.selectors && this.selectors.map(function(s) {
-        return s.eval(env);
-      });
-      ruleset = new tree.Ruleset(selectors, this.rules.slice(0), this.strictImports);
-      /* Start: New Code
-      */
-      ruleset._context = this._context;
-      ruleset._parentCSS = this._parentCSS;
-      /* End: New Code
-      */
-      ruleset.root = this.root;
-      ruleset.allowImports = this.allowImports;
-      env.frames.unshift(ruleset);
-      if (ruleset.root || ruleset.allowImports || !ruleset.strictImports) {
-        i = 0;
-        while (i < ruleset.rules.length) {
-          if (ruleset.rules[i] instanceof tree.Import) {
-            Array.prototype.splice.apply(ruleset.rules, [i, 1].concat(ruleset.rules[i].eval(env)));
-          }
-          i++;
-        }
-      }
-      i = 0;
-      while (i < ruleset.rules.length) {
-        if (ruleset.rules[i] instanceof tree.mixin.Definition) {
-          ruleset.rules[i].frames = env.frames.slice(0);
-        }
-        i++;
-      }
-      i = 0;
-      while (i < ruleset.rules.length) {
-        if (ruleset.rules[i] instanceof tree.mixin.Call) {
-          Array.prototype.splice.apply(ruleset.rules, [i, 1].concat(ruleset.rules[i].eval(env)));
-        }
-        i++;
-      }
-      i = 0;
-      rule = void 0;
-      while (i < ruleset.rules.length) {
-        rule = ruleset.rules[i];
-        if (!(rule instanceof tree.mixin.Definition)) {
-          ruleset.rules[i] = (rule.eval ? rule.eval(env) : rule);
-        }
-        i++;
-      }
-      env.frames.shift();
-      return ruleset;
-    };
-    interestingNodes = {};
-    expressionsToString = function(env, args) {
-      var i, ret, _i, _len;
-      if (less.tree.Expression.prototype.isPrototypeOf(args)) args = args.value;
-      if (args instanceof Array) {
-        ret = '';
-        for (_i = 0, _len = args.length; _i < _len; _i++) {
-          i = args[_i];
-          if (!i) console.error("BUG: i is not defined!");
-          ret = ret + expressionsToString(env, i);
-        }
-        return ret;
-      } else {
-        return args.eval(env).value;
-      }
-    };
-    DeferredEvaluationNode = (function() {
+  runTest = function(expect, html, css) {
+    var p, root;
+    root = $('#qunit-fixture');
+    root[0].innerHTML = html;
+    p = new module.exports();
+    p.emulate(css);
+    root.find('.debug-epubcss').removeClass('debug-epubcss');
+    root.find('*[class=""]').removeAttr('class');
+    return equal(root[0].innerHTML, expect);
+  };
 
-      function DeferredEvaluationNode(f) {
-        this.f = f;
-      }
+  test('content_basic', function() {
+    var css, expect, html;
+    css = "article { content: \"pass\"; }";
+    html = "<article>fail</article>";
+    expect = "<article>pass</article>";
+    return runTest(expect, html, css);
+  });
 
-      DeferredEvaluationNode.prototype.eval = function(env) {
-        if (env.doNotDefer) {
-          return this.f(env);
-        } else {
-          return this;
-        }
-      };
+  test('pseudo_simple', function() {
+    var css, expect, html;
+    css = "article::before { content: \"before\"; }\narticle::after { content: \"after\"; }";
+    html = "<article>text1<span>text2</span>text3</article>";
+    expect = "<article><span class=\"pseudo-element before\">before</span>text1<span>text2</span>text3<span class=\"pseudo-element after\">after</span></article>";
+    return runTest(expect, html, css);
+  });
 
-      return DeferredEvaluationNode;
+  test('attr', function() {
+    var css, expect, html;
+    css = "article::before { content: attr(href); }";
+    html = "<article href=\"pass\">fail</article>";
+    expect = "<article href=\"pass\"><span class=\"pseudo-element before\">pass</span>fail</article>";
+    return runTest(expect, html, css);
+  });
 
-    })();
-    evaluators = {
-      'attr': function(env, args) {
-        return new DeferredEvaluationNode(function(env) {
-          var $context, href, id;
-          $context = env.doNotDefer;
-          if ($context.hasClass(PSEUDO_CLASS)) $context = $context.parent();
-          href = args[0].eval(env).value;
-          id = $context.attr(href);
-          if (!id) {
-            console.warn("CSS Bug: Could not find attribute '" + href + "' on ", $context);
-          }
-          return new tree.Anonymous(id || "NO_ID_FOUND_WOOT");
-        }).eval(env);
-      },
-      'target-counter': function(env, args) {
-        var $node, id, newEnv, node, _i, _len, _ref;
-        if (args.length < 2) {
-          console.error('target-counter requires at least 2 arguments');
-        }
-        _ref = env.frames[0]._context;
-        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-          node = _ref[_i];
-          $node = $(node);
-          newEnv = {
-            doNotDefer: $node
-          };
-          id = expressionsToString(newEnv, args[0]);
-          interestingNodes[id] = false;
-        }
-        return new DeferredEvaluationNode(function(env) {
-          var counterName, counters, style, val;
-          id = expressionsToString(env, args[0]);
-          counterName = args[1].eval(env).value;
-          style = 'decimal';
-          if (args.length > 2) style = args[2].eval(env).value;
-          if (id in interestingNodes && interestingNodes[id]) {
-            counters = interestingNodes[id].data('counters') || {};
-            val = counters[counterName] || 0;
-            return new tree.Anonymous(numberingStyle(val, style));
-          }
-        }).eval(env);
-      },
-      'target-text': function(env, args) {
-        var $node, id, newEnv, node, _i, _len, _ref;
-        _ref = env.frames[0]._context;
-        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-          node = _ref[_i];
-          $node = $(node);
-          newEnv = {
-            doNotDefer: $node,
-            frames: [
-              {
-                _context: $node
-              }
-            ]
-          };
-          id = expressionsToString(newEnv, args[0]);
-          interestingNodes[id] = false;
-        }
-        return new DeferredEvaluationNode(function(env) {
-          var contentType, ret;
-          id = expressionsToString(env, args[0]);
-          if (interestingNodes[id]) {
-            $node = interestingNodes[id];
-            contentType = (args[1] || {
-              value: 'content'
-            }).value;
-            ret = null;
-            switch (contentType) {
-              case 'content-element':
-                ret = $node.children(":not(." + PSEUDO_CLASS + ")").text();
-                break;
-              case 'content-before':
-                ret = $node.children("." + PSEUDO_CLASS + " .before").text();
-                break;
-              case 'content-after':
-                ret = $node.children("." + PSEUDO_CLASS + " .after").text();
-                break;
-              case 'content-first-letter':
-                ret = $node.children(":not(." + PSEUDO_CLASS + ")").text().substring(0, 1);
-                break;
-              default:
-                ret = $node.text();
-            }
-            return new tree.Anonymous(ret);
-          }
-        }).eval(env);
-      },
-      'counter': function(env, args) {
-        return new DeferredEvaluationNode(function(env) {
-          var $context, name, style, val;
-          $context = env.doNotDefer;
-          name = args[0].eval(env).value;
-          style = 'decimal';
-          if (args.length > 1) style = args[1].eval(env).value;
-          val = $context.data('counters')[name];
-          return new tree.Anonymous(numberingStyle(val || 0, style));
-        }).eval(env);
-      },
-      'string': function(env, args) {
-        return new DeferredEvaluationNode(function(env) {
-          var $context, name, val;
-          $context = env.doNotDefer;
-          name = args[0].eval(env).value;
-          val = $context.data('strings')[name];
-          return new tree.Anonymous(val || '');
-        }).eval(env);
-      },
-      'content': function(env, args) {
-        return new DeferredEvaluationNode(function(env) {
-          var $node, contentType, ret;
-          $node = env.doNotDefer;
-          contentType = (args[0] || {
-            value: 'content'
-          }).value;
-          ret = null;
-          switch (contentType) {
-            case 'content-element':
-              ret = $node.children(":not(." + PSEUDO_CLASS + ")").text();
-              break;
-            case 'content-before':
-              ret = $node.children("." + PSEUDO_CLASS + " .before").text();
-              break;
-            case 'content-after':
-              ret = $node.children("." + PSEUDO_CLASS + " .after").text();
-              break;
-            case 'content-first-letter':
-              ret = $node.children(":not(." + PSEUDO_CLASS + ")").text().substring(0, 1);
-              break;
-            default:
-              ret = $node.text();
-          }
-          return new tree.Anonymous(ret);
-        }).eval(env);
-      },
-      'leader': function(env, args) {
-        return new tree.Anonymous(args[0]);
-      }
-    };
-    storeIt = function(cmd) {
-      return function($el, value) {
-        return $el.data(cmd, value);
-      };
-    };
-    complexRules = {
-      'counter-reset': storeIt('counter-reset'),
-      'counter-increment': storeIt('counter-increment'),
-      'content': storeIt('content'),
-      'display': function($el, value) {
-        if ('none' === value.eval().value) {
-          return $el.remove();
-        } else {
+  test('counter', function() {
+    var css, expect, html;
+    css = "article { counter-reset: a 10 b c 20; }\narticle { counter-increment: a b 2 c; }\narticle { content: \"a=\" counter(a) \",b=\" counter(b) \",c=\" counter(c); }";
+    html = "<article>fail</article>";
+    expect = "<article>a=11,b=2,c=21</article>";
+    return runTest(expect, html, css);
+  });
 
-        }
-      },
-      'string-set': storeIt('string-set')
-    };
-    _oldCallPrototype = less.tree.Call.prototype.eval;
-    less.tree.Call.prototype.eval = function(env) {
-      var args;
-      if (this.name in evaluators) {
-        args = this.args.map(function(a) {
-          return a.eval(env);
-        });
-        return evaluators[this.name](env, args);
-      } else {
-        return _oldCallPrototype.apply(this, [env]);
-      }
-    };
-    less.tree.Rule.prototype.eval = function(env) {
-      var $el, el, style, value, _i, _len, _ref;
-      _ref = env.frames[0]._context;
-      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-        el = _ref[_i];
-        $el = $(el);
-        value = this.value.eval(env);
-        if (this.name in complexRules) {
-          complexRules[this.name]($el, this.value.eval(env));
-        } else {
-          if (!$el.data('style')) $el.data('style', {});
-          style = $el.data('style');
-          style[this.name] = value.toCSS(env);
-        }
-      }
-      return new tree.Rule(this.name, this.value.eval(env), this.important, this.index, this.inline);
-    };
-    preorderTraverse = function($nodes, func) {
-      return $nodes.each(function() {
-        var $node;
-        $node = $(this);
-        func($node);
-        return preorderTraverse($node.children(), func);
-      });
-    };
-    p = less.Parser();
-    return $('.lesscss').on('change', function() {
-      return p.parse($('.lesscss').val(), function(err, lessNode) {
-        var ary, counterState, cssClassNum, cssClassPrefix, cssClasses, cssHashes, env, id, name, parseCounters, propName, propVal, props, stringState, vals;
-        env = {
-          frames: []
-        };
-        lessNode.eval(env);
-        for (id in interestingNodes) {
-          interestingNodes[id] = $(id);
-        }
-        parseCounters = function(expr, defaultNum) {
-          var counters, exp, i, name, tokens, val, _i, _len, _ref;
-          counters = {};
-          if (less.tree.Anonymous.prototype.isPrototypeOf(expr)) {
-            tokens = expr.value.split(' ');
-          } else if (less.tree.Expression.prototype.isPrototypeOf(expr)) {
-            tokens = [];
-            _ref = expr.value;
-            for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-              exp = _ref[_i];
-              tokens.push(exp.value);
-            }
-          } else {
-            tokens = [expr.value];
-          }
-          i = 0;
-          while (i < tokens.length) {
-            name = tokens[i];
-            if (i === tokens.length - 1) {
-              val = defaultNum;
-            } else if (isNaN(parseInt(tokens[i + 1]))) {
-              val = defaultNum;
-            } else {
-              val = parseInt(tokens[i + 1]);
-              i++;
-            }
-            counters[name] = val;
-            i++;
-          }
-          return counters;
-        };
-        console.log("----- Looping over all nodes to squirrel away counters to be looked up later");
-        counterState = {};
-        stringState = {};
-        cssHashes = {};
-        cssClasses = {};
-        cssClassPrefix = 'autogen-';
-        cssClassNum = 0;
-        preorderTraverse($('body'), function($node) {
-          var counter, counters, hash, isInteresting, name, stringsExp, style, val;
-          if ($node.data('counter-reset')) {
-            counters = parseCounters($node.data('counter-reset'), 0);
-            for (counter in counters) {
-              val = counters[counter];
-              counterState[counter] = val;
-            }
-          }
-          if ($node.data('counter-increment')) {
-            counters = parseCounters($node.data('counter-increment'), 1);
-            for (counter in counters) {
-              val = counters[counter];
-              counterState[counter] = (counterState[counter] || 0) + val;
-            }
-          }
-          if ($node.data('string-set')) {
-            stringsExp = $node.data('string-set');
-            env = {
-              doNotDefer: $node,
-              frames: [
-                {
-                  _context: $node
-                }
-              ]
-            };
-            name = expressionsToString(env, stringsExp.value[0]);
-            val = expressionsToString(env, stringsExp.value[1]);
-            stringState[name] = val;
-          }
-          isInteresting = '#' + $node.attr('id') in interestingNodes;
-          if (isInteresting || $node.data('content')) {
-            $node.data('counters', $.extend({}, counterState));
-            $node.data('strings', $.extend({}, stringState));
-          }
-          if (isInteresting) interestingNodes['#' + $node.attr('id')] = $node;
-          if ($node.data('style')) {
-            style = $node.data('style');
-            $node.data('style', null);
-            hash = JSON.stringify(style);
-            if (!(hash in cssHashes)) {
-              name = cssClassPrefix + (cssClassNum++);
-              cssHashes[hash] = name;
-              cssClasses[name] = style;
-            } else {
-              name = cssHashes[hash];
-            }
-            return $node.addClass(name);
-          }
-        });
-        console.log("----- Looping over all nodes and updating based on content: ");
-        preorderTraverse($('body'), function($node) {
-          var expr, newContent, pseudoAfter, pseudoBefore;
-          if ($node.data('content')) {
-            $node.addClass(DEBUG_MODIFIED_CLASS);
-            env = {
-              doNotDefer: $node,
-              frames: [
-                {
-                  _context: $node
-                }
-              ]
-            };
-            expr = $node.data('content');
-            newContent = expressionsToString(env, expr);
-            pseudoBefore = $node.children('.before');
-            pseudoAfter = $node.children('.after');
-            $node.contents().remove();
-            $node.prepend(pseudoBefore);
-            $node.append(newContent);
-            return $node.append(pseudoAfter);
-          }
-        });
-        console.log('Done processing!');
-        ary = [];
-        for (name in cssClasses) {
-          props = cssClasses[name];
-          vals = [];
-          for (propName in props) {
-            propVal = props[propName];
-            vals.push("" + propName + ": " + propVal + ";");
-          }
-          ary.push("." + name + " { " + (vals.join('')) + " }");
-        }
-        return $('<style type="text/css"></style>').append(ary.join('\n')).appendTo('body');
-      });
-    });
+  test('target_counter', function() {
+    var css, expect, html;
+    css = "article        { counter-reset: counter 20; }\nem          { counter-increment: counter; }\ntest        { content: target-counter(attr(href), counter); }\ntest::before { content: target-counter(attr(href), counter, lower-roman); }\ntest::after  { content: target-counter(attr(href), counter, upper-latin); }";
+    html = "<article><test href=\"#correct\">text0</test><em id=\"some-other-test\">text1</em><em id=\"correct\">text2</em></article>";
+    expect = "<article><test href=\"#correct\"><span class=\"pseudo-element before\">xxii</span>22<span class=\"pseudo-element after\">V</span></test><em id=\"some-other-test\">text1</em><em id=\"correct\">text2</em></article>";
+    return runTest(expect, html, css);
+  });
+
+  test('content_replace_and_counter', function() {
+    " This test replaces the content of an element (deleting the child) and increments the child";
+    var css, expect, html;
+    css = "test        { counter-increment: counter; }\narticle        { content: target-counter(attr(href), counter); }\narticle::before { content: target-counter(attr(href), counter); }";
+    html = "<article href=\"#correct\"><test id=\"some-other-test\"/><test id=\"correct\"/></article>";
+    expect = "<article href=\"#correct\"><span class=\"pseudo-element before\">0</span>2</article>";
+    return runTest(expect, html, css);
+  });
+
+  test('display_none', function() {
+    var css, expect, html;
+    css = ".hide       { display: none; }\ntest        { counter-increment: counter; }\ntest        { content: counter(counter); }";
+    html = "<article><test class=\"hide\">fail</test><test class=\"hide\">fail</test><test>fail</test></article>";
+    expect = "<article><test>1</test></article>";
+    return runTest(expect, html, css);
+  });
+
+  test('target_text', function() {
+    var css, expect, html;
+    css = "test          { content: target-text(attr(href), content()); }\ntest::before  { content: target-text(attr(href), content(before)); }\ntest::after   { content: target-text(attr(href), content(after)); }\ntest2::before { content: \"BEFORE\"; }\ntest2::after  { content: \"AFTER\"; }\ninner::before { content: \"B\"; }\ninner::after  { content: \"D\"; }\nhide          { display: none; }";
+    html = "<article><test href=\"#itsme\">text1</test><test2 id=\"itsme\">A<inner>C<hide>XXX</hide></inner>E</test2>X</article>";
+    expect = "<article><test href=\"#itsme\"><span class=\"pseudo-element before\">BEFORE</span>ABCDE<span class=\"pseudo-element after\">AFTER</span></test><test2 id=\"itsme\"><span class=\"pseudo-element before\">BEFORE</span>A<inner><span class=\"pseudo-element before\">B</span>C<span class=\"pseudo-element after\">D</span></inner>E<span class=\"pseudo-element after\">AFTER</span></test2>X</article>";
+    return runTest(expect, html, css);
+  });
+
+  test('target_text_and_counters', function() {
+    var css, expect, html;
+    css = "test          { content: target-text(attr(href), content()); }\ntest::before  { content: target-text(attr(href), content(before)); }\ntest::after   { content: target-text(attr(href), content(after)); }\ntest2::before { content: \"BEFORE\"; }\ntest2::after  { content: \"AFTER\"; }\ninner::before { content: \"B\"; }\ninner::after  { content: \"D\"; }\nhide          { display: none; }";
+    html = "<article><test href=\"#itsme\"/><test2 id=\"itsme\">A<inner>C<hide>XXX</hide></inner>E</test2>X</article>";
+    expect = "<article><test href=\"#itsme\"><span class=\"pseudo-element before\">BEFORE</span>ABCDE<span class=\"pseudo-element after\">AFTER</span></test><test2 id=\"itsme\"><span class=\"pseudo-element before\">BEFORE</span>A<inner><span class=\"pseudo-element before\">B</span>C<span class=\"pseudo-element after\">D</span></inner>E<span class=\"pseudo-element after\">AFTER</span></test2>X</article>";
+    return runTest(expect, html, css);
+  });
+
+  test('string_set', function() {
+    var css, expect, html;
+    css = "html          { string-set: test-string \"SHOULD NEVER SEE THIS\"; }\narticle          { string-set: test-string \"SIMPLE\"; }\ntest::before  { content: string(test-string); }\ntest          { string-set: test-string target-text(attr(href), content()) \" LOKKING-UP-A-LINK\"; }\ntest2         { content: string(test-string); }";
+    html = "<article><test href=\"#itsme\"/><test2 id=\"itsme\">A<inner>C<hide>XXX</hide></inner>E</test2>X</article>";
+    expect = "<article><test href=\"#itsme\"><span class=\"pseudo-element before\">SIMPLE</span></test><test2 id=\"itsme\">SIMPLE<inner>C<hide>XXX</hide></inner>E</test2>X</article>";
+    return runTest(expect, html, css);
+  });
+
+  test('string_set_multiple', function() {
+    var css, expect, html;
+    css = "html          { string-set: test-string1 \"success\", test-string2 \"SUCCESS\"; }\ntest  { content: string(test-string1) \" \" string(test-string2); }";
+    html = "<article><test>FAILED</test></article>";
+    expect = "<article><test>success SUCCESS</test></article>";
+    return runTest(expect, html, css);
+  });
+
+  test('string_set_advanced', function() {
+    var css, expect, html;
+    css = "test          { string-set: test-string target-text(attr(href), content()) \" LOKKING-UP-A-LINK\"; }\ntest2         { content: string(test-string); }";
+    html = "<article><test href=\"#itsme\"/><test2 id=\"itsme\">A<inner>C<hide>XXX</hide></inner>E</test2>X</article>";
+    expect = "<article><test href=\"#itsme\"/><test2 id=\"itsme\">AE</test2>X</article>";
+    return runTest(expect, html, css);
+  });
+
+  test('move_to', function() {
+    var css, expect, html;
+    css = "test::before  { move-to: BUCKET1; content: \"123\"; }\ntest          { move-to: BUCKET2; }\ntest::after    { move-to: BUCKET1; content: \"456\";}\ntest2::before  { content: pending(BUCKET1); }\ntest2::after   { content: pending(BUCKET2); }";
+    html = "<article><test>ABC</test>tail1<test2>DEF</test2>tail2</article>";
+    expect = "<article>tail1<test2><span class=\"pseudo-element before\"><span class=\"pseudo-element before\">123</span><span class=\"pseudo-element after\">456</span></span>DEF<span class=\"pseudo-element after\"><test>ABC</test></span></test2>tail2</article>";
+    return runTest(expect, html, css);
   });
 
 }).call(this);

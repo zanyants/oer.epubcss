@@ -102,19 +102,16 @@ Adding a rule to the previous example will yield the same HTML as before but sti
  Installing
 ====================
 
-This package requires:
-- http://phantomjs.org (Headless webkit)
-- http://nodejs.org
-- http://coffeescript.org
+To run the QUnit tests just point your browser to ./test/index.html
 
-Then, run the following commands::
-  coffee -c epubcss.coffee test/test.coffee
-  phantomjs epubcss.js /path/to/less/file "file:///URL/to/htmlfile.xhtml" ./output.xhtml
+To process a HTML and CSS file you will need to download http://phantomjs.org (Headless webkit).
 
-Or:
-- point your browser to ./test/index.html
+Then, to process a HTML file::
+  /path/to/phantomjs phantom-harness.js /path/to/less/file "file:///URL/to/htmlfile.xhtml" ./output.xhtml
+
+To see an example:
+- point your browser to ./test/example.html
 - open up the debugging console
-- copy the contents of ./test/test.less and paste it into the textarea
+- copy the contents of ./test/example.less and paste it into the textarea
 - Press Tab to start the processing
-
 When it's done, text in yellow is content that was added/changed by the script.
