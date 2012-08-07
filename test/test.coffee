@@ -117,11 +117,12 @@ test 'string_set_multiple', () ->
   runTest(expect, html, css)
 
 test 'string_set_advanced', () ->
-  css    = """test          { string-set: test-string target-text(attr(href), content()) " LOKKING-UP-A-LINK"; }
-              test2         { content: string(test-string); }
+  css    = """test  { string-set: test-string target-text(attr(href), content()) "-text"; }
+              test2 { content: string(test-string); }
+              hide  { display: none; }
               """
-  html   = """<article><test href="#itsme"/><test2 id="itsme">A<inner>C<hide>XXX</hide></inner>E</test2>X</article>"""
-  expect = """<article><test href="#itsme"/><test2 id="itsme">AE</test2>X</article>"""
+  html   = """<article><test href="#itsme"></test><test2 id="itsme">A<inner>B<hide>XXX</hide></inner>C</test2>X</article>"""
+  expect = """<article><test href="#itsme"></test><test2 id="itsme">ABC-text</test2>X</article>"""
   runTest(expect, html, css)
 
 test 'move_to', () ->

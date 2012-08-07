@@ -103,9 +103,9 @@
 
   test('string_set_advanced', function() {
     var css, expect, html;
-    css = "test          { string-set: test-string target-text(attr(href), content()) \" LOKKING-UP-A-LINK\"; }\ntest2         { content: string(test-string); }";
-    html = "<article><test href=\"#itsme\"/><test2 id=\"itsme\">A<inner>C<hide>XXX</hide></inner>E</test2>X</article>";
-    expect = "<article><test href=\"#itsme\"/><test2 id=\"itsme\">AE</test2>X</article>";
+    css = "test  { string-set: test-string target-text(attr(href), content()) \"-text\"; }\ntest2 { content: string(test-string); }\nhide  { display: none; }";
+    html = "<article><test href=\"#itsme\"></test><test2 id=\"itsme\">A<inner>B<hide>XXX</hide></inner>C</test2>X</article>";
+    expect = "<article><test href=\"#itsme\"></test><test2 id=\"itsme\">ABC-text</test2>X</article>";
     return runTest(expect, html, css);
   });
 
