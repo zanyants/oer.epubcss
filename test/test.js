@@ -6,7 +6,7 @@
     root = $('#qunit-fixture');
     root[0].innerHTML = html;
     p = new module.exports();
-    p.emulate(css);
+    p.emulate(css, root);
     root.find('.debug-epubcss').removeClass('debug-epubcss');
     root.find('*[class=""]').removeAttr('class');
     return equal(root[0].innerHTML, expect);
@@ -25,6 +25,14 @@
     css = "article::before { content: \"before\"; }\narticle::after { content: \"after\"; }";
     html = "<article>text1<span>text2</span>text3</article>";
     expect = "<article><span class=\"pseudo-element before\">before</span>text1<span>text2</span>text3<span class=\"pseudo-element after\">after</span></article>";
+    return runTest(expect, html, css);
+  });
+
+  test('counter_simple', function() {
+    var css, expect, html;
+    css = "*::before { content: \" before:\" counter(c1) \" \"; }\n*::after  { content: \" after:\"  counter(c1) \" \"; }\n*         { counter-increment: c1; }";
+    html = "<article>text1<span>text2<span><span>text3</span>text4</span></span><span>text5</span>text6</article>";
+    expect = "<article><span class=\"pseudo-element before\"> before:1 </span>text1<span><span class=\"pseudo-element before\"> before:2 </span>text2<span><span class=\"pseudo-element before\"> before:3 </span><span><span class=\"pseudo-element before\"> before:4 </span>text3<span class=\"pseudo-element after\"> after:4 </span></span>text4<span class=\"pseudo-element after\"> after:4 </span></span><span class=\"pseudo-element after\"> after:4 </span></span><span><span class=\"pseudo-element before\"> before:5 </span>text5<span class=\"pseudo-element after\"> after:5 </span></span>text6<span class=\"pseudo-element after\"> after:5 </span></article>";
     return runTest(expect, html, css);
   });
 
@@ -80,7 +88,7 @@
   test('target_text_and_counters', function() {
     var css, expect, html;
     css = "test          { content: target-text(attr(href), content()); }\ntest::before  { content: target-text(attr(href), content(before)); }\ntest::after   { content: target-text(attr(href), content(after)); }\ntest2::before { content: \"BEFORE\"; }\ntest2::after  { content: \"AFTER\"; }\ninner::before { content: \"B\"; }\ninner::after  { content: \"D\"; }\nhide          { display: none; }";
-    html = "<article><test href=\"#itsme\"/><test2 id=\"itsme\">A<inner>C<hide>XXX</hide></inner>E</test2>X</article>";
+    html = "<article><test href=\"#itsme\"></test><test2 id=\"itsme\">A<inner>C<hide>XXX</hide></inner>E</test2>X</article>";
     expect = "<article><test href=\"#itsme\"><span class=\"pseudo-element before\">BEFORE</span>ABCDE<span class=\"pseudo-element after\">AFTER</span></test><test2 id=\"itsme\"><span class=\"pseudo-element before\">BEFORE</span>A<inner><span class=\"pseudo-element before\">B</span>C<span class=\"pseudo-element after\">D</span></inner>E<span class=\"pseudo-element after\">AFTER</span></test2>X</article>";
     return runTest(expect, html, css);
   });

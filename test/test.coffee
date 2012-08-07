@@ -2,7 +2,7 @@ runTest = (expect, html, css) ->
   root = $('#qunit-fixture')
   root[0].innerHTML = html
   p = new (module.exports)()
-  p.emulate(css)
+  p.emulate(css, root)
   # Remove the debug class
   root.find('.debug-epubcss').removeClass('debug-epubcss')
   root.find('*[class=""]').removeAttr('class')
@@ -21,6 +21,15 @@ test 'pseudo_simple', () ->
               """
   html   = """<article>text1<span>text2</span>text3</article>"""
   expect = """<article><span class="pseudo-element before">before</span>text1<span>text2</span>text3<span class="pseudo-element after">after</span></article>"""
+  runTest(expect, html, css)
+
+test 'counter_simple', () ->
+  css    = """*::before { content: " before:" counter(c1) " "; }
+              *::after  { content: " after:"  counter(c1) " "; }
+              *         { counter-increment: c1; }
+              """
+  html   = """<article>text1<span>text2<span><span>text3</span>text4</span></span><span>text5</span>text6</article>"""
+  expect = """<article><span class="pseudo-element before"> before:1 </span>text1<span><span class="pseudo-element before"> before:2 </span>text2<span><span class="pseudo-element before"> before:3 </span><span><span class="pseudo-element before"> before:4 </span>text3<span class="pseudo-element after"> after:4 </span></span>text4<span class="pseudo-element after"> after:4 </span></span><span class="pseudo-element after"> after:4 </span></span><span><span class="pseudo-element before"> before:5 </span>text5<span class="pseudo-element after"> after:5 </span></span>text6<span class="pseudo-element after"> after:5 </span></article>"""
   runTest(expect, html, css)
 
 test 'attr', () ->
@@ -92,7 +101,7 @@ test 'target_text_and_counters', () ->
               inner::after  { content: "D"; }
               hide          { display: none; }
               """
-  html   = """<article><test href="#itsme"/><test2 id="itsme">A<inner>C<hide>XXX</hide></inner>E</test2>X</article>"""
+  html   = """<article><test href="#itsme"></test><test2 id="itsme">A<inner>C<hide>XXX</hide></inner>E</test2>X</article>"""
   expect = """<article><test href="#itsme"><span class="pseudo-element before">BEFORE</span>ABCDE<span class="pseudo-element after">AFTER</span></test><test2 id="itsme"><span class="pseudo-element before">BEFORE</span>A<inner><span class="pseudo-element before">B</span>C<span class="pseudo-element after">D</span></inner>E<span class="pseudo-element after">AFTER</span></test2>X</article>"""
   runTest(expect, html, css)
 
