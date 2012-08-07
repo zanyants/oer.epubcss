@@ -499,9 +499,17 @@ class EpubCSS
               frames: [
                 _context: $node
               ]
-            name = expressionsToString(env, stringsExp.value[0])
-            val = expressionsToString(env, new tree.Expression(stringsExp.value.slice(1)))
-            stringState[name] = val
+            # If only 1 string is defined then the AST looks like this: 
+            # If multiple strings are being defined the AST looks like this: Value([Expression('s1-name', 'value1', 'value2'), Expression('s2-name', 'v1', 'v2')])
+            if stringsExp instanceof tree.Value
+              for exp in stringsExp.value
+                name = expressionsToString(env, exp.value[0])
+                val = expressionsToString(env, new tree.Expression(exp.value.slice(1)))
+                stringState[name] = val
+            else
+              name = expressionsToString(env, stringsExp.value[0])
+              val = expressionsToString(env, new tree.Expression(stringsExp.value.slice(1)))
+              stringState[name] = val
 
 
           # If this node is an interestingNode then squirrel away the current counter state

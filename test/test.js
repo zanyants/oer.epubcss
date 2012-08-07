@@ -95,7 +95,7 @@
 
   test('string_set_multiple', function() {
     var css, expect, html;
-    css = "html          { string-set: test-string1 \"success\", test-string2 \"SUCCESS\"; }\ntest  { content: string(test-string1) \" \" string(test-string2); }";
+    css = "article { string-set: test-string1 \"success\", test-string2 \"SUCCESS\"; }\ntest    { content: string(test-string1) \" \" string(test-string2); }";
     html = "<article><test>FAILED</test></article>";
     expect = "<article><test>success SUCCESS</test></article>";
     return runTest(expect, html, css);

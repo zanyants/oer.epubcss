@@ -524,7 +524,7 @@ The DOM is looped over 3 times:
         cssClassPrefix = 'autogen-';
         cssClassNum = 0;
         preorderTraverse($('body'), function($node) {
-          var counter, counters, hash, isInteresting, name, stringsExp, style, val;
+          var counter, counters, exp, hash, isInteresting, name, stringsExp, style, val, _i, _len, _ref;
           if ($node.data('counter-reset')) {
             counters = parseCounters($node.data('counter-reset'), 0);
             for (counter in counters) {
@@ -549,9 +549,19 @@ The DOM is looped over 3 times:
                 }
               ]
             };
-            name = expressionsToString(env, stringsExp.value[0]);
-            val = expressionsToString(env, new tree.Expression(stringsExp.value.slice(1)));
-            stringState[name] = val;
+            if (stringsExp instanceof tree.Value) {
+              _ref = stringsExp.value;
+              for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+                exp = _ref[_i];
+                name = expressionsToString(env, exp.value[0]);
+                val = expressionsToString(env, new tree.Expression(exp.value.slice(1)));
+                stringState[name] = val;
+              }
+            } else {
+              name = expressionsToString(env, stringsExp.value[0]);
+              val = expressionsToString(env, new tree.Expression(stringsExp.value.slice(1)));
+              stringState[name] = val;
+            }
           }
           isInteresting = '#' + $node.attr('id') in interestingNodes;
           if (isInteresting || $node.data('content')) {
