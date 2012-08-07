@@ -87,9 +87,9 @@
 
   test('string_set', function() {
     var css, expect, html;
-    css = "html          { string-set: test-string \"SHOULD NEVER SEE THIS\"; }\narticle          { string-set: test-string \"SIMPLE\"; }\ntest::before  { content: string(test-string); }\ntest          { string-set: test-string target-text(attr(href), content()) \" LOKKING-UP-A-LINK\"; }\ntest2         { content: string(test-string); }";
-    html = "<article><test href=\"#itsme\"/><test2 id=\"itsme\">A<inner>C<hide>XXX</hide></inner>E</test2>X</article>";
-    expect = "<article><test href=\"#itsme\"><span class=\"pseudo-element before\">SIMPLE</span></test><test2 id=\"itsme\">SIMPLE<inner>C<hide>XXX</hide></inner>E</test2>X</article>";
+    css = "html          { string-set: test-string \"SHOULD NEVER SEE THIS\"; }\narticle       { string-set: test-string \"SIMPLE\"; }\narticle::before  { content: string(test-string); }\ntest::before  { content: string(test-string); }\ntest          { string-set: test-string target-text(attr(href), content()) \"-text\"; }\ntest2         { content: string(test-string); }";
+    html = "<article><test href=\"#itsme\"></test><test2 id=\"itsme\">A<inner>B</inner>C</test2>X</article>";
+    expect = "<article><span class=\"pseudo-element before\">SIMPLE</span><test href=\"#itsme\"><span class=\"pseudo-element before\">ABC-text</span></test><test2 id=\"itsme\">ABC-text</test2>X</article>";
     return runTest(expect, html, css);
   });
 

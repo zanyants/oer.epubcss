@@ -98,13 +98,14 @@ test 'target_text_and_counters', () ->
 
 test 'string_set', () ->
   css    = """html          { string-set: test-string "SHOULD NEVER SEE THIS"; }
-              article          { string-set: test-string "SIMPLE"; }
+              article       { string-set: test-string "SIMPLE"; }
+              article::before  { content: string(test-string); }
               test::before  { content: string(test-string); }
-              test          { string-set: test-string target-text(attr(href), content()) " LOKKING-UP-A-LINK"; }
+              test          { string-set: test-string target-text(attr(href), content()) "-text"; }
               test2         { content: string(test-string); }
               """
-  html   = """<article><test href="#itsme"/><test2 id="itsme">A<inner>C<hide>XXX</hide></inner>E</test2>X</article>"""
-  expect = """<article><test href="#itsme"><span class="pseudo-element before">SIMPLE</span></test><test2 id="itsme">SIMPLE<inner>C<hide>XXX</hide></inner>E</test2>X</article>"""
+  html   = """<article><test href="#itsme"></test><test2 id="itsme">A<inner>B</inner>C</test2>X</article>"""
+  expect = """<article><span class="pseudo-element before">SIMPLE</span><test href="#itsme"><span class="pseudo-element before">ABC-text</span></test><test2 id="itsme">ABC-text</test2>X</article>"""
   runTest(expect, html, css)
 
 test 'string_set_multiple', () ->

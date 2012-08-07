@@ -491,6 +491,7 @@ class EpubCSS
           # String-set works much like "content: " at this point:
           # We need to evaluate the contents of the string to set
           # Some of it may contain a counter() or a content(before)
+          # The 1st arg is the name of the string and should be lopped off before evaluating the rest
           if $node.data('string-set')
             stringsExp = $node.data('string-set')
             env =
@@ -499,7 +500,7 @@ class EpubCSS
                 _context: $node
               ]
             name = expressionsToString(env, stringsExp.value[0])
-            val = expressionsToString(env, stringsExp.value[1])
+            val = expressionsToString(env, new tree.Expression(stringsExp.value.slice(1)))
             stringState[name] = val
 
 

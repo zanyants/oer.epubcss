@@ -550,7 +550,7 @@ The DOM is looped over 3 times:
               ]
             };
             name = expressionsToString(env, stringsExp.value[0]);
-            val = expressionsToString(env, stringsExp.value[1]);
+            val = expressionsToString(env, new tree.Expression(stringsExp.value.slice(1)));
             stringState[name] = val;
           }
           isInteresting = '#' + $node.attr('id') in interestingNodes;
