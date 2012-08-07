@@ -149,6 +149,8 @@ less.tree.Ruleset.prototype.eval = (env) ->
           $found = $context.find(css2.trim())
         else
           $found = $context.filter(css2.trim())
+        # Filter out any matched pseudo elements that were added
+        $found = $found.filter(":not(.#{PSEUDO_CLASS})")
         
         # If there was a pseudo-selector then add it to the work queue
         if css != css2 and $found.length
@@ -162,7 +164,8 @@ less.tree.Ruleset.prototype.eval = (env) ->
               pseudo = $el.children(".#{PSEUDO_CLASS}.before")
               if pseudo.length == 0
                 pseudo = $(PSEUDO_ELEMENT).addClass('before')
-              pseudos.push(pseudo.prependTo $el)
+                pseudo.prependTo $el
+              pseudos.push(pseudo)
             $found = pseudos
           else if css.indexOf(':after') >= 0
             pseudos = []
@@ -171,7 +174,8 @@ less.tree.Ruleset.prototype.eval = (env) ->
               pseudo = $el.children(".#{PSEUDO_CLASS}.after")
               if pseudo.length == 0
                 pseudo = $(PSEUDO_ELEMENT).addClass('after')
-              pseudos.push(pseudo.appendTo $el)
+                pseudo.appendTo $el
+              pseudos.push(pseudo)
             $found = pseudos
           else
             console.error "Weird pseudo-selector found: #{css}"

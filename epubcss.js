@@ -144,6 +144,7 @@ The DOM is looped over 3 times:
         } else {
           $found = $context.filter(css2.trim());
         }
+        $found = $found.filter(":not(." + PSEUDO_CLASS + ")");
         if (css !== css2 && $found.length) {
           if (css.indexOf(':before') >= 0) {
             pseudos = [];
@@ -153,8 +154,9 @@ The DOM is looped over 3 times:
               pseudo = $el.children("." + PSEUDO_CLASS + ".before");
               if (pseudo.length === 0) {
                 pseudo = $(PSEUDO_ELEMENT).addClass('before');
+                pseudo.prependTo($el);
               }
-              return pseudos.push(pseudo.prependTo($el));
+              return pseudos.push(pseudo);
             });
             $found = pseudos;
           } else if (css.indexOf(':after') >= 0) {
@@ -165,8 +167,9 @@ The DOM is looped over 3 times:
               pseudo = $el.children("." + PSEUDO_CLASS + ".after");
               if (pseudo.length === 0) {
                 pseudo = $(PSEUDO_ELEMENT).addClass('after');
+                pseudo.appendTo($el);
               }
-              return pseudos.push(pseudo.appendTo($el));
+              return pseudos.push(pseudo);
             });
             $found = pseudos;
           } else {
