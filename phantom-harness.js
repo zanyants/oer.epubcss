@@ -23,6 +23,13 @@
 
   address = system.args[2];
 
+  if (address[0] !== '/') {
+    console.error("Path to HTML file does not seem to be an absolute path. For now it needs to start with a '/'");
+    phantom.exit(1);
+  }
+
+  address = "file://" + address;
+
   outputFile = fs.open(system.args[3], 'w');
 
   outputFile.write('<html xmlns="http://www.w3.org/1999/xhtml">');

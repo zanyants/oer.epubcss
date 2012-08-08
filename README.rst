@@ -107,7 +107,8 @@ To run the QUnit tests just point your browser to ./test/index.html
 To process a HTML and CSS file you will need to download http://phantomjs.org (Headless webkit).
 
 Then, to process a HTML file::
-  /path/to/phantomjs phantom-harness.js /path/to/less/file "file:///URL/to/htmlfile.xhtml" ./output.xhtml
+
+  /path/to/phantomjs phantom-harness.coffee /path/to/less/file /absolute/path/to/htmlfile.html ./output.xhtml
 
 To see an example:
 - point your browser to ./test/example.html
