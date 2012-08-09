@@ -487,6 +487,15 @@ class EpubCSS
             counters = parseCounters($node.data('counter-increment'), 1)
             for counter, val of counters
               counterState[counter] = (counterState[counter] || 0) + val
+
+          # If this node is an interestingNode then squirrel away the current counter state
+          isInteresting = '#' + $node.attr('id') of interestingNodes
+          if isInteresting or $node.data('content') or $node.data('string-set')
+            $node.data 'counters', ($.extend {}, counterState)
+            $node.data 'strings', ($.extend {}, stringState)
+          if isInteresting
+            interestingNodes['#' + $node.attr('id')] = $node
+
           # String-set works much like "content: " at this point:
           # We need to evaluate the contents of the string to set
           # Some of it may contain a counter() or a content(before)
@@ -509,15 +518,6 @@ class EpubCSS
               name = expressionsToString(env, stringsExp.value[0])
               val = expressionsToString(env, new tree.Expression(stringsExp.value.slice(1)))
               stringState[name] = val
-
-
-          # If this node is an interestingNode then squirrel away the current counter state
-          isInteresting = '#' + $node.attr('id') of interestingNodes
-          if isInteresting or $node.data('content')
-            $node.data 'counters', ($.extend {}, counterState)
-            $node.data 'strings', ($.extend {}, stringState)
-          if isInteresting
-            interestingNodes['#' + $node.attr('id')] = $node
 
           # Generate custom classes that don't match            
           if $node.data('style')
@@ -555,10 +555,6 @@ class EpubCSS
               hasTarget
             hasTarget = recHasTarget(expr)
             if boolTarget ^ hasTarget
-              if hasTarget
-                console.log 'Found something with a target!'
-                console.log 'AKJshd'
-              console.log 'Skipping!'
               return
 
             newContent = expressionsToString(env, expr)
@@ -567,7 +563,9 @@ class EpubCSS
             pseudoBefore = $node.children('.#{PSEUDO_CLASS}.before')
             #pseudoAfter = $node.children('.#{PSEUDO_CLASS}.after')
             # Don't remove the pseudo elements because otherwise we'll lose the jQuery.data() attached to them
-            $node.contents(":not(.#{PSEUDO_CLASS})").remove()
+            $node.contents().filter(() -> 
+              @nodeType != 1 or not $(@).hasClass(PSEUDO_CLASS)
+              ).remove()
             if pseudoBefore.length
               pseudoBefore.after newContent
             else

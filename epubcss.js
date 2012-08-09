@@ -527,6 +527,12 @@ The DOM is looped over 3 times:
               counterState[counter] = (counterState[counter] || 0) + val;
             }
           }
+          isInteresting = '#' + $node.attr('id') in interestingNodes;
+          if (isInteresting || $node.data('content') || $node.data('string-set')) {
+            $node.data('counters', $.extend({}, counterState));
+            $node.data('strings', $.extend({}, stringState));
+          }
+          if (isInteresting) interestingNodes['#' + $node.attr('id')] = $node;
           if ($node.data('string-set')) {
             stringsExp = $node.data('string-set');
             env = {
@@ -551,12 +557,6 @@ The DOM is looped over 3 times:
               stringState[name] = val;
             }
           }
-          isInteresting = '#' + $node.attr('id') in interestingNodes;
-          if (isInteresting || $node.data('content')) {
-            $node.data('counters', $.extend({}, counterState));
-            $node.data('strings', $.extend({}, stringState));
-          }
-          if (isInteresting) interestingNodes['#' + $node.attr('id')] = $node;
           if ($node.data('style')) {
             style = $node.data('style');
             $node.data('style', null);
@@ -603,17 +603,12 @@ The DOM is looped over 3 times:
                 return hasTarget;
               };
               hasTarget = recHasTarget(expr);
-              if (boolTarget ^ hasTarget) {
-                if (hasTarget) {
-                  console.log('Found something with a target!');
-                  console.log('AKJshd');
-                }
-                console.log('Skipping!');
-                return;
-              }
+              if (boolTarget ^ hasTarget) return;
               newContent = expressionsToString(env, expr);
               pseudoBefore = $node.children('.#{PSEUDO_CLASS}.before');
-              $node.contents(":not(." + PSEUDO_CLASS + ")").remove();
+              $node.contents().filter(function() {
+                return this.nodeType !== 1 || !$(this).hasClass(PSEUDO_CLASS);
+              }).remove();
               if (pseudoBefore.length) {
                 return pseudoBefore.after(newContent);
               } else {

@@ -117,6 +117,15 @@ test 'string-set simple', () ->
   expect = """<article><span class="pseudo-element before">SIMPLE</span><test href="#itsme"><span class="pseudo-element before">ABC-text</span></test><test2 id="itsme">ABC-text</test2>X</article>"""
   runTest(expect, html, css)
 
+test 'string-set counter', () ->
+  css    = """article { counter-reset: c1 1234; }
+              test    { string-set: s1 counter(c1); }
+              test2   { content: string(s1); }
+              """
+  html   = """<article><test></test><test2></test2></article>"""
+  expect = """<article><test></test><test2>1234</test2></article>"""
+  runTest(expect, html, css)
+
 test 'string-set multiple', () ->
   css    = """article { string-set: test-string1 "success", test-string2 "SUCCESS"; }
               test    { content: string(test-string1) " " string(test-string2); }

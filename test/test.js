@@ -101,6 +101,14 @@
     return runTest(expect, html, css);
   });
 
+  test('string-set counter', function() {
+    var css, expect, html;
+    css = "article { counter-reset: c1 1234; }\ntest    { string-set: s1 counter(c1); }\ntest2   { content: string(s1); }";
+    html = "<article><test></test><test2></test2></article>";
+    expect = "<article><test></test><test2>1234</test2></article>";
+    return runTest(expect, html, css);
+  });
+
   test('string-set multiple', function() {
     var css, expect, html;
     css = "article { string-set: test-string1 \"success\", test-string2 \"SUCCESS\"; }\ntest    { content: string(test-string1) \" \" string(test-string2); }";
