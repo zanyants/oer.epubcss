@@ -114,7 +114,7 @@ The DOM is looped over 3 times:
       */
       tree = less.tree;
       less.tree.Ruleset.prototype.eval = function(env) {
-        var $context, $found, $newContext, css, css2, endTime, frame, i, parentCSS, pseudos, rule, ruleset, selector, selectors, skips, startTime, took, _i, _j, _len, _len2, _ref, _ref2;
+        var $context, $found, $newContext, css, css2, endTime, frame, i, parentCSS, pseudoMatch, pseudos, rule, ruleset, selector, selectors, skips, startTime, took, _i, _j, _len, _len2, _ref, _ref2;
         skips = 0;
         _ref = env.frames;
         for (_i = 0, _len = _ref.length; _i < _len; _i++) {
@@ -141,8 +141,8 @@ The DOM is looped over 3 times:
           for (_j = 0, _len2 = _ref2.length; _j < _len2; _j++) {
             selector = _ref2[_j];
             css = selector.toCSS();
-            css2 = css.replace(/::?before/, '');
-            css2 = css2.replace(/::?after/, '');
+            css2 = css.replace(/::?[\w\-]+ *$/, '');
+            pseudoMatch = css.match(/::?([\w\-]+) *$/);
             startTime = new Date().getTime();
             if (css2[0] === ' ') {
               $found = $context.find(css2.trim());
@@ -151,34 +151,23 @@ The DOM is looped over 3 times:
             }
             $found = $found.filter(":not(." + PSEUDO_CLASS + ")");
             if (css !== css2 && $found.length) {
-              if (css.indexOf(':before') >= 0) {
+              if (pseudoMatch.length >= 0) {
                 pseudos = [];
                 $found.each(function() {
                   var $el, pseudo;
                   $el = $(this);
-                  pseudo = $el.children("." + PSEUDO_CLASS + ".before");
+                  pseudo = $el.children("." + PSEUDO_CLASS + "." + pseudoMatch[1]);
                   if (pseudo.length === 0) {
-                    pseudo = $(PSEUDO_ELEMENT).addClass('before');
-                    pseudo.prependTo($el);
+                    pseudo = $(PSEUDO_ELEMENT).addClass(pseudoMatch[1]);
+                    if (pseudoMatch[1] === 'before') {
+                      pseudo.prependTo($el);
+                    } else {
+                      pseudo.appendTo($el);
+                    }
                   }
                   return pseudos.push(pseudo);
                 });
                 $found = pseudos;
-              } else if (css.indexOf(':after') >= 0) {
-                pseudos = [];
-                $found.each(function() {
-                  var $el, pseudo;
-                  $el = $(this);
-                  pseudo = $el.children("." + PSEUDO_CLASS + ".after");
-                  if (pseudo.length === 0) {
-                    pseudo = $(PSEUDO_ELEMENT).addClass('after');
-                    pseudo.appendTo($el);
-                  }
-                  return pseudos.push(pseudo);
-                });
-                $found = pseudos;
-              } else {
-                console.error("Weird pseudo-selector found: " + css);
               }
             }
             $newContext = $newContext.add($found);

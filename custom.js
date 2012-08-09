@@ -9,27 +9,3 @@ $.expr[':']['nth-of-type'] = function(elem, i, match) {
     var parts = match[3].split("+");
     return (i + 1 - (parts[1] || 0)) % parseInt(parts[0], 10) === 0;
 };
-
-/** My custom selectors (some, like the footer ones will need to be hooked in to our tools) **/
-$.expr[':']['first-of-type'] = function(elem, i, match) {
-    return i === 0;
-};
-
-var footnoteMarkerReported = false;
-var footnoteCallReported = false;
-
-$.expr[':']['footnote-marker'] = function(elem, i, match) {
-    if (footnoteMarkerReported == false) {
-        console.warn('Pseudoselector :footnote-marker not supported yet. Not matching anything.');
-        footnoteMarkerReported = true;
-    }
-    return false;
-};
-
-$.expr[':']['footnote-call'] = function(elem, i, match) {
-    if (footnoteCallReported == false) {
-        console.warn('Pseudoselector :footnote-call not supported yet. Not matching anything.');
-        footnoteCallReported = true;
-    }
-    return false;
-};

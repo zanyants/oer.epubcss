@@ -45,6 +45,7 @@ The DOM is looped over 3 times:
 DEBUG_MODIFIED_CLASS = 'debug-epubcss' # Added whenever "content:" is evaluated
 PSEUDO_CLASS = "pseudo-element"
 PSEUDO_ELEMENT = "<span class='#{PSEUDO_CLASS}'></span>"
+SUPPORTED_PSEUDO_SELECTORS = [ 'before', 'after', 'footnote-call', 'footnote-marker' ]
 
 ### ############ Util Functions ########### ###
 # These are used to format numbers and aren't terribly interesting
@@ -140,10 +141,10 @@ class EpubCSS
           css = ''
           for selector in @selectors
             css = selector.toCSS()
-            
-            # Remove pseudoselectors
-            css2 = css.replace(/::?before/, '')
-            css2 = css2.replace(/::?after/, '')
+                        
+            # Remove pseudo-selectors from the jQuery query (but add in elements later)
+            pseudoMatch = css.match(/::?([\w\-]+) *$/)
+            css2 = css.replace(/::?[\w\-]+ *$/, '')
     
             startTime = new Date().getTime()
             # If the selector does not start with a space then it is a filter
@@ -155,33 +156,23 @@ class EpubCSS
             # Filter out any matched pseudo elements that were added
             $found = $found.filter(":not(.#{PSEUDO_CLASS})")
             
-            # If there was a pseudo-selector then add it to the work queue
-            if css != css2 and $found.length
-              # Create all the pseudo nodes and then use them as $found
-              if css.indexOf(':before') >= 0
-                pseudos = []
-                $found.each () ->
-                  $el = $(@)
-                  # TODO: Merge this pseudo element with an existing on (need to know CSS selector priority)
-                  # For now, just remove the previous definition?
-                  pseudo = $el.children(".#{PSEUDO_CLASS}.before")
-                  if pseudo.length == 0
-                    pseudo = $(PSEUDO_ELEMENT).addClass('before')
+            # Create all the pseudo nodes and then use them as $found
+            if pseudoMatch.length >= 0 and pseudoMatch[1] in SUPPORTED_PSEUDO_SELECTORS
+              pseudos = []
+              $found.each () ->
+                $el = $(@)
+                # TODO: Merge this pseudo element with an existing on (need to know CSS selector priority)
+                # For now, just remove the previous definition?
+                pseudo = $el.children(".#{PSEUDO_CLASS}.#{pseudoMatch[1]}")
+                if pseudo.length == 0
+                  pseudo = $(PSEUDO_ELEMENT).addClass(pseudoMatch[1])
+                  # For a ::before match we prepend, otherwise we append
+                  if pseudoMatch[1] == 'before'
                     pseudo.prependTo $el
-                  pseudos.push(pseudo)
-                $found = pseudos
-              else if css.indexOf(':after') >= 0
-                pseudos = []
-                $found.each () ->
-                  $el = $(@)
-                  pseudo = $el.children(".#{PSEUDO_CLASS}.after")
-                  if pseudo.length == 0
-                    pseudo = $(PSEUDO_ELEMENT).addClass('after')
+                  else
                     pseudo.appendTo $el
-                  pseudos.push(pseudo)
-                $found = pseudos
-              else
-                console.error "Weird pseudo-selector found: #{css}"
+                pseudos.push(pseudo)
+              $found = pseudos
     
             $newContext = $newContext.add($found)
     
