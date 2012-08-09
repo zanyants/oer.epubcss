@@ -15,12 +15,21 @@ $.expr[':']['first-of-type'] = function(elem, i, match) {
     return i === 0;
 };
 
+var footnoteMarkerReported = false;
+var footnoteCallReported = false;
+
 $.expr[':']['footnote-marker'] = function(elem, i, match) {
-    console.warn('Pseudoselector :footnote-marker not supported yet. Not matching anything.');
+    if (footnoteMarkerReported == false) {
+        console.warn('Pseudoselector :footnote-marker not supported yet. Not matching anything.');
+        footnoteMarkerReported = true;
+    }
     return false;
 };
 
 $.expr[':']['footnote-call'] = function(elem, i, match) {
-    console.warn('Pseudoselector :footnote-call not supported yet. Not matching anything.');
+    if (footnoteCallReported == false) {
+        console.warn('Pseudoselector :footnote-call not supported yet. Not matching anything.');
+        footnoteCallReported = true;
+    }
     return false;
 };
