@@ -108,7 +108,7 @@ The DOM is looped over 3 times:
     function EpubCSS() {}
 
     EpubCSS.prototype.emulate = function(cssStr, rootNode) {
-      var DeferredEvaluationNode, complexRules, evaluators, expressionsToString, interestingNodes, p, preorderTraverse, storeIt, tree, _oldCallPrototype;
+      var DeferredEvaluationNode, complexRules, evaluators, expressionsToString, interestingNodes, p, pendingNodes, preorderTraverse, storeIt, tree, _oldCallPrototype;
       if (rootNode == null) rootNode = $('html');
       /*
       */
@@ -245,6 +245,7 @@ The DOM is looped over 3 times:
         return ruleset;
       };
       interestingNodes = {};
+      pendingNodes = {};
       expressionsToString = function(env, args) {
         var i, ret, _i, _len;
         if (less.tree.Expression.prototype.isPrototypeOf(args)) args = args.value;
@@ -406,6 +407,22 @@ The DOM is looped over 3 times:
         },
         'leader': function(env, args) {
           return new tree.Anonymous(args[0]);
+        },
+        'pending': function(env, args) {
+          return new DeferredEvaluationNode('pending', function(env) {
+            var $context, $node, id, _i, _len, _ref;
+            $context = env.doNotDefer;
+            id = expressionsToString(env, args[0]);
+            if (pendingNodes[id]) {
+              _ref = pendingNodes[id];
+              for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+                $node = _ref[_i];
+                $context.append($node);
+              }
+              pendingNodes[id] = [];
+              return new tree.Anonymous('THIS_SHOULD_NEVER_DISPLAY');
+            }
+          }).eval(env);
         }
       };
       storeIt = function(cmd) {
@@ -417,6 +434,7 @@ The DOM is looped over 3 times:
         'counter-reset': storeIt('counter-reset'),
         'counter-increment': storeIt('counter-increment'),
         'content': storeIt('content'),
+        'move-to': storeIt('move-to'),
         'display': function($el, value) {
           if ('none' === value.eval().value) {
             return $el.remove();
@@ -465,7 +483,7 @@ The DOM is looped over 3 times:
       };
       p = less.Parser();
       return p.parse(cssStr, function(err, lessNode) {
-        var ary, counterState, cssClassNum, cssClassPrefix, cssClasses, cssHashes, env, id, name, parseCounters, propName, propVal, props, setContent, stringState, vals;
+        var ary, counterState, cssClassNum, cssClassPrefix, cssClasses, cssHashes, env, id, name, parseCounters, propName, propVal, props, recHasProperty, setContent, stringState, vals;
         env = {
           frames: []
         };
@@ -572,9 +590,25 @@ The DOM is looped over 3 times:
           }
         });
         console.log("----- Looping over all nodes and updating 'content:' without a target-*");
+        recHasProperty = function(expr, propName) {
+          var hasProperty, val, _i, _len, _ref;
+          hasProperty = false;
+          if (DeferredEvaluationNode.prototype.isPrototypeOf(expr)) {
+            hasProperty = expr.name === propName;
+          } else if (less.tree.Expression.prototype.isPrototypeOf(expr)) {
+            _ref = expr.value;
+            for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+              val = _ref[_i];
+              hasProperty = hasProperty || recHasProperty(val, propName);
+            }
+          } else if (expr.value != null) {
+            hasProperty = recHasProperty(expr.value, propName);
+          }
+          return hasProperty;
+        };
         setContent = function(boolTarget) {
           return function($node) {
-            var expr, hasTarget, newContent, pseudoBefore, recHasTarget;
+            var expr, hasPending, hasTarget, newContent, pseudoBefore;
             if ($node.data('content')) {
               $node.addClass(DEBUG_MODIFIED_CLASS);
               env = {
@@ -586,34 +620,28 @@ The DOM is looped over 3 times:
                 ]
               };
               expr = $node.data('content');
-              recHasTarget = function(expr) {
-                var hasTarget, val, _i, _len, _ref;
-                hasTarget = false;
-                if (DeferredEvaluationNode.prototype.isPrototypeOf(expr)) {
-                  hasTarget = expr.name === 'target-text';
-                } else if (less.tree.Expression.prototype.isPrototypeOf(expr)) {
-                  _ref = expr.value;
-                  for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-                    val = _ref[_i];
-                    hasTarget = hasTarget || recHasTarget(val);
-                  }
-                } else if (expr.value != null) {
-                  hasTarget = recHasTarget(expr.value);
-                }
-                return hasTarget;
-              };
-              hasTarget = recHasTarget(expr);
+              hasTarget = recHasProperty(expr, 'target-text');
               if (boolTarget ^ hasTarget) return;
-              newContent = expressionsToString(env, expr);
-              pseudoBefore = $node.children('.#{PSEUDO_CLASS}.before');
-              $node.contents().filter(function() {
-                return this.nodeType !== 1 || !$(this).hasClass(PSEUDO_CLASS);
-              }).remove();
-              if (pseudoBefore.length) {
-                return pseudoBefore.after(newContent);
+              hasPending = recHasProperty(expr, 'pending');
+              if (hasPending) {
+                expressionsToString(env, expr);
               } else {
-                return $node.prepend(newContent);
+                newContent = expressionsToString(env, expr);
+                pseudoBefore = $node.children('.#{PSEUDO_CLASS}.before');
+                $node.contents().filter(function() {
+                  return this.nodeType !== 1 || !$(this).hasClass(PSEUDO_CLASS);
+                }).remove();
+                if (pseudoBefore.length) {
+                  pseudoBefore.after(newContent);
+                } else {
+                  $node.prepend(newContent);
+                }
               }
+            }
+            if ($node.data('move-to')) {
+              id = expressionsToString(env, $node.data('move-to'));
+              pendingNodes[id] = pendingNodes[id] || [];
+              return pendingNodes[id].push($node);
             }
           };
         };

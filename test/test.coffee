@@ -143,6 +143,14 @@ test 'string-set complex', () ->
   expect = """<article><test href="#itsme"></test><test2 id="itsme">ABC-text</test2>X</article>"""
   runTest(expect, html, css)
 
+test 'move-to simple', () ->
+  css    = """test  { move-to: BUCKET1; }
+              test2 { content: pending(BUCKET1); }
+              """
+  html   = """<article><test>ABC</test><test2></test2></article>"""
+  expect = """<article><test2><test>ABC</test></test2></article>"""
+  runTest(expect, html, css)
+
 test 'move-to', () ->
   css    = """test::before  { move-to: BUCKET1; content: "123"; }
               test          { move-to: BUCKET2; }

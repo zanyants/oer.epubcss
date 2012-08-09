@@ -239,6 +239,7 @@ class EpubCSS
         ruleset
     
     interestingNodes = {} # Used to know which nodes to squirrel counter information into since someone points to them via target-counter
+    pendingNodes = {} # Used by move-to: and pending()
     
     # Concatenated multiple expressions (evaluated) into 1
     # For example: attr(href) '-title' turns into [ tree.Quoted('#id123'), tree.Quoted('-title') ] and
@@ -369,6 +370,17 @@ class EpubCSS
       # content: allows leader(' . ') for generating '.............' in TOCs
       'leader': (env, args) ->
         new tree.Anonymous(args[0])
+      # Attaches the pending nodes to the DOM. Does not return anything
+      'pending': (env, args) ->
+        return new DeferredEvaluationNode('pending', (env) ->
+          $context = env.doNotDefer
+          id = expressionsToString(env, args[0])
+          if pendingNodes[id]
+            for $node in pendingNodes[id]
+              $context.append($node)
+            pendingNodes[id] = [] # Clear the pending list
+            new tree.Anonymous('THIS_SHOULD_NEVER_DISPLAY')
+        ).eval(env)
     
     
     storeIt = (cmd) -> ($el, value) ->
@@ -379,6 +391,7 @@ class EpubCSS
       'counter-reset': storeIt 'counter-reset'
       'counter-increment': storeIt 'counter-increment'
       'content': storeIt 'content'
+      'move-to': storeIt 'move-to'
       'display': ($el, value) ->
         if 'none' == value.eval().value
           $el.remove()
@@ -533,6 +546,17 @@ class EpubCSS
             $node.addClass(name)
 
       console.log "----- Looping over all nodes and updating 'content:' without a target-*"
+      recHasProperty = (expr, propName) ->
+        hasProperty = false
+        if DeferredEvaluationNode.prototype.isPrototypeOf(expr)
+          hasProperty = (expr.name == propName)
+        else if less.tree.Expression.prototype.isPrototypeOf expr
+          for val in expr.value
+            hasProperty = hasProperty or recHasProperty(val, propName)
+        else if expr.value?
+          hasProperty = recHasProperty(expr.value, propName)
+        hasProperty
+
       setContent = (boolTarget) -> ($node) ->
           # If there is a content: _____ then replace the text contents of the node (not pseudo elements)
           if $node.data('content')
@@ -543,33 +567,35 @@ class EpubCSS
                 _context: $node
               ]
             expr = $node.data('content')
-            recHasTarget = (expr) ->
-              hasTarget = false
-              if DeferredEvaluationNode.prototype.isPrototypeOf(expr)
-                hasTarget = (expr.name == 'target-text')
-              else if less.tree.Expression.prototype.isPrototypeOf expr
-                for val in expr.value
-                  hasTarget = hasTarget or recHasTarget(val)
-              else if expr.value?
-                hasTarget = recHasTarget(expr.value)
-              hasTarget
-            hasTarget = recHasTarget(expr)
+            hasTarget = recHasProperty(expr, 'target-text')
             if boolTarget ^ hasTarget
               return
 
-            newContent = expressionsToString(env, expr)
-            # console.log "New Content: '#{newContent}' from", expr
-            # Keep the pseudo elements
-            pseudoBefore = $node.children('.#{PSEUDO_CLASS}.before')
-            #pseudoAfter = $node.children('.#{PSEUDO_CLASS}.after')
-            # Don't remove the pseudo elements because otherwise we'll lose the jQuery.data() attached to them
-            $node.contents().filter(() -> 
-              @nodeType != 1 or not $(@).hasClass(PSEUDO_CLASS)
-              ).remove()
-            if pseudoBefore.length
-              pseudoBefore.after newContent
+            # If "content: pending('some-id')" then Don't actually generate content. 'pending' will append the nodes
+            hasPending = recHasProperty(expr, 'pending')
+            if hasPending
+              # Need to evaluate the expression so 'pending' is called and appends the nodes
+              expressionsToString(env, expr)
             else
-              $node.prepend newContent
+            
+              newContent = expressionsToString(env, expr)
+              # console.log "New Content: '#{newContent}' from", expr
+              # Keep the pseudo elements
+              pseudoBefore = $node.children('.#{PSEUDO_CLASS}.before')
+              #pseudoAfter = $node.children('.#{PSEUDO_CLASS}.after')
+              # Don't remove the pseudo elements because otherwise we'll lose the jQuery.data() attached to them
+              $node.contents().filter(() -> 
+                @nodeType != 1 or not $(@).hasClass(PSEUDO_CLASS)
+                ).remove()
+              if pseudoBefore.length
+                pseudoBefore.after newContent
+              else
+                $node.prepend newContent
+          
+          if $node.data('move-to')
+            id = expressionsToString(env, $node.data('move-to'))
+            pendingNodes[id] = pendingNodes[id] or []
+            pendingNodes[id].push($node)
 
       preorderTraverse rootNode, setContent(false)
       console.log "----- Looping over all nodes and updating 'content:' with a target-*"

@@ -125,6 +125,14 @@
     return runTest(expect, html, css);
   });
 
+  test('move-to simple', function() {
+    var css, expect, html;
+    css = "test  { move-to: BUCKET1; }\ntest2 { content: pending(BUCKET1); }";
+    html = "<article><test>ABC</test><test2></test2></article>";
+    expect = "<article><test2><test>ABC</test></test2></article>";
+    return runTest(expect, html, css);
+  });
+
   test('move-to', function() {
     var css, expect, html;
     css = "test::before  { move-to: BUCKET1; content: \"123\"; }\ntest          { move-to: BUCKET2; }\ntest::after   { move-to: BUCKET1; content: \"456\";}\ntest2::before { content: pending(BUCKET1); }\ntest2::after  { content: pending(BUCKET2); }";
