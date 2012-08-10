@@ -25,7 +25,7 @@ The tree.Anonymous node is used to return strings (like the result of counter(ch
 
 Pseudo elements are "emulated" because their content: may not be supported by the browser (ie "content: target-text(attr(href))" )
 Also, EPUB documents do not support ::before and ::after
-Pseudo elements are converted to spans with a special class defined by PSEUDO_CLASS.
+Pseudo elements are converted to spans with a special class defined by config.pseudoCls.
 
 4. Loops over the document:
 
@@ -41,11 +41,6 @@ The DOM is looped over 3 times:
 
 ###
 
-
-DEBUG_MODIFIED_CLASS = 'debug-epubcss' # Added whenever "content:" is evaluated
-PSEUDO_CLASS = "pseudo-element"
-PSEUDO_ELEMENT = "<span class='#{PSEUDO_CLASS}'></span>"
-SUPPORTED_PSEUDO_SELECTORS = [ 'before', 'after', 'footnote-call', 'footnote-marker' ]
 
 ### ############ Util Functions ########### ###
 # These are used to format numbers and aren't terribly interesting
@@ -103,10 +98,18 @@ numberingStyle = (num, style='decimal') ->
       num
 
 
+SUPPORTED_PSEUDO_SELECTORS = [ 'before', 'after', 'footnote-call', 'footnote-marker' ]
 
 class EpubCSS
-  constructor: () ->
+  constructor: (config = {}) ->
+    defaultConfig =
+      debugCls: 'debug-epubcss' # Added whenever "content:" is evaluated. Set it to '' to not include
+      pseudoCls: "pseudo-element"
+      pseudoElement: "<span></span>"
+      
+    @config = $.extend(defaultConfig, config)
   emulate: (cssStr, rootNode=$('html')) ->
+    config = @config # Things like filters change @ so just use a local variable
 
     ### ############### Override lesscss AST nodes ############### ###
     
@@ -143,7 +146,7 @@ class EpubCSS
             css = selector.toCSS()
                         
             # Remove pseudo-selectors from the jQuery query (but add in elements later)
-            pseudoMatch = css.match(/::?([\w\-]+) *$/)
+            pseudoMatch = css.match(/::?([\w\-]+) *$/) or []
             css2 = css.replace(/::?[\w\-]+ *$/, '')
     
             startTime = new Date().getTime()
@@ -154,7 +157,7 @@ class EpubCSS
             else
               $found = $context.filter(css2.trim())
             # Filter out any matched pseudo elements that were added
-            $found = $found.filter(":not(.#{PSEUDO_CLASS})")
+            $found = $found.filter(":not(.#{config.pseudoCls})")
             
             # Create all the pseudo nodes and then use them as $found
             if pseudoMatch.length >= 0 and pseudoMatch[1] in SUPPORTED_PSEUDO_SELECTORS
@@ -163,9 +166,9 @@ class EpubCSS
                 $el = $(@)
                 # TODO: Merge this pseudo element with an existing on (need to know CSS selector priority)
                 # For now, just remove the previous definition?
-                pseudo = $el.children(".#{PSEUDO_CLASS}.#{pseudoMatch[1]}")
+                pseudo = $el.children(".#{config.pseudoCls}.#{pseudoMatch[1]}")
                 if pseudo.length == 0
-                  pseudo = $(PSEUDO_ELEMENT).addClass(pseudoMatch[1])
+                  pseudo = $(config.pseudoElement).addClass(config.pseudoCls).addClass(pseudoMatch[1])
                   # For a ::before match we prepend, otherwise we append
                   if pseudoMatch[1] == 'before'
                     pseudo.prependTo $el
@@ -265,7 +268,7 @@ class EpubCSS
           $context = env.doNotDefer
           
           # If it's a pseudo-element then use the parent
-          if $context.hasClass(PSEUDO_CLASS)
+          if $context.hasClass(config.pseudoCls)
             $context = $context.parent()
           
           # There is only 1 arg, the attribute we need to look up
@@ -348,14 +351,14 @@ class EpubCSS
           ret = null
           switch contentType
             when 'NO_ARGUMENT' then ret = $node.contents().filter(() -> 
-              @nodeType != 1 or not $(@).hasClass(PSEUDO_CLASS)
+              @nodeType != 1 or not $(@).hasClass(config.pseudoCls)
               ).text()
-            when 'before' then ret = $node.children(".#{PSEUDO_CLASS}.before").text()
-            when 'after' then ret = $node.children(".#{PSEUDO_CLASS}.after").text()
-            when 'first-letter' then ret = $node.children(":not(.#{PSEUDO_CLASS})").text().substring(0,1)
+            when 'before' then ret = $node.children(".#{config.pseudoCls}.before").text()
+            when 'after' then ret = $node.children(".#{config.pseudoCls}.after").text()
+            when 'first-letter' then ret = $node.children(":not(.#{config.pseudoCls})").text().substring(0,1)
             else
               console.warn("content() was called with an invalid argument: '#{contentType}'. Assuming no argument was passed in.")
-              ret = $node.children(":not(.#{PSEUDO_CLASS})").text()
+              ret = $node.children(":not(.#{config.pseudoCls})").text()
           new tree.Anonymous(ret)
         ).eval(env)
       # content: allows leader(' . ') for generating '.............' in TOCs
@@ -551,7 +554,7 @@ class EpubCSS
       setContent = (boolTarget) -> ($node) ->
           # If there is a content: _____ then replace the text contents of the node (not pseudo elements)
           if $node.data('content')
-            $node.addClass(DEBUG_MODIFIED_CLASS)
+            $node.addClass(config.debugCls)
             env =
               doNotDefer: $node
               frames: [
@@ -572,11 +575,11 @@ class EpubCSS
               newContent = expressionsToString(env, expr)
               # console.log "New Content: '#{newContent}' from", expr
               # Keep the pseudo elements
-              pseudoBefore = $node.children('.#{PSEUDO_CLASS}.before')
-              #pseudoAfter = $node.children('.#{PSEUDO_CLASS}.after')
+              pseudoBefore = $node.children(".#{config.pseudoCls}.before")
+              #pseudoAfter = $node.children(".#{config.pseudoCls}.after")
               # Don't remove the pseudo elements because otherwise we'll lose the jQuery.data() attached to them
               $node.contents().filter(() -> 
-                @nodeType != 1 or not $(@).hasClass(PSEUDO_CLASS)
+                @nodeType != 1 or not $(@).hasClass(config.pseudoCls)
                 ).remove()
               if pseudoBefore.length
                 pseudoBefore.after newContent

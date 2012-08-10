@@ -26,7 +26,7 @@ The tree.Anonymous node is used to return strings (like the result of counter(ch
 
 Pseudo elements are "emulated" because their content: may not be supported by the browser (ie "content: target-text(attr(href))" )
 Also, EPUB documents do not support ::before and ::after
-Pseudo elements are converted to spans with a special class defined by PSEUDO_CLASS.
+Pseudo elements are converted to spans with a special class defined by config.pseudoCls.
 
 4. Loops over the document:
 
@@ -41,17 +41,12 @@ The DOM is looped over 3 times:
 - The 3rd traversal is also over the entire DOM in order and replaces the content of elements that have a 'content: ...' rule.
 */
 
+/*
+*/
+
 (function() {
-  var DEBUG_MODIFIED_CLASS, EpubCSS, PSEUDO_CLASS, PSEUDO_ELEMENT, numberingStyle, toRoman;
-
-  DEBUG_MODIFIED_CLASS = 'debug-epubcss';
-
-  PSEUDO_CLASS = "pseudo-element";
-
-  PSEUDO_ELEMENT = "<span class='" + PSEUDO_CLASS + "'></span>";
-
-  /*
-  */
+  var EpubCSS, SUPPORTED_PSEUDO_SELECTORS, numberingStyle, toRoman,
+    __indexOf = Array.prototype.indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
 
   toRoman = function(num) {
     var integer, numeral, result, romanNumeralMap, _i, _len, _ref;
@@ -103,18 +98,30 @@ The DOM is looped over 3 times:
     }
   };
 
+  SUPPORTED_PSEUDO_SELECTORS = ['before', 'after', 'footnote-call', 'footnote-marker'];
+
   EpubCSS = (function() {
 
-    function EpubCSS() {}
+    function EpubCSS(config) {
+      var defaultConfig;
+      if (config == null) config = {};
+      defaultConfig = {
+        debugCls: 'debug-epubcss',
+        pseudoCls: "pseudo-element",
+        pseudoElement: "<span></span>"
+      };
+      this.config = $.extend(defaultConfig, config);
+    }
 
     EpubCSS.prototype.emulate = function(cssStr, rootNode) {
-      var DeferredEvaluationNode, complexRules, evaluators, expressionsToString, interestingNodes, p, pendingNodes, preorderTraverse, storeIt, tree, _oldCallPrototype;
+      var DeferredEvaluationNode, complexRules, config, evaluators, expressionsToString, interestingNodes, p, pendingNodes, preorderTraverse, storeIt, tree, _oldCallPrototype;
       if (rootNode == null) rootNode = $('html');
+      config = this.config;
       /*
       */
       tree = less.tree;
       less.tree.Ruleset.prototype.eval = function(env) {
-        var $context, $found, $newContext, css, css2, endTime, frame, i, parentCSS, pseudoMatch, pseudos, rule, ruleset, selector, selectors, skips, startTime, took, _i, _j, _len, _len2, _ref, _ref2;
+        var $context, $found, $newContext, css, css2, endTime, frame, i, parentCSS, pseudoMatch, pseudos, rule, ruleset, selector, selectors, skips, startTime, took, _i, _j, _len, _len2, _ref, _ref2, _ref3;
         skips = 0;
         _ref = env.frames;
         for (_i = 0, _len = _ref.length; _i < _len; _i++) {
@@ -141,34 +148,32 @@ The DOM is looped over 3 times:
           for (_j = 0, _len2 = _ref2.length; _j < _len2; _j++) {
             selector = _ref2[_j];
             css = selector.toCSS();
+            pseudoMatch = css.match(/::?([\w\-]+) *$/) || [];
             css2 = css.replace(/::?[\w\-]+ *$/, '');
-            pseudoMatch = css.match(/::?([\w\-]+) *$/);
             startTime = new Date().getTime();
             if (css2[0] === ' ') {
               $found = $context.find(css2.trim());
             } else {
               $found = $context.filter(css2.trim());
             }
-            $found = $found.filter(":not(." + PSEUDO_CLASS + ")");
-            if (css !== css2 && $found.length) {
-              if (pseudoMatch.length >= 0) {
-                pseudos = [];
-                $found.each(function() {
-                  var $el, pseudo;
-                  $el = $(this);
-                  pseudo = $el.children("." + PSEUDO_CLASS + "." + pseudoMatch[1]);
-                  if (pseudo.length === 0) {
-                    pseudo = $(PSEUDO_ELEMENT).addClass(pseudoMatch[1]);
-                    if (pseudoMatch[1] === 'before') {
-                      pseudo.prependTo($el);
-                    } else {
-                      pseudo.appendTo($el);
-                    }
+            $found = $found.filter(":not(." + config.pseudoCls + ")");
+            if (pseudoMatch.length >= 0 && (_ref3 = pseudoMatch[1], __indexOf.call(SUPPORTED_PSEUDO_SELECTORS, _ref3) >= 0)) {
+              pseudos = [];
+              $found.each(function() {
+                var $el, pseudo;
+                $el = $(this);
+                pseudo = $el.children("." + config.pseudoCls + "." + pseudoMatch[1]);
+                if (pseudo.length === 0) {
+                  pseudo = $(config.pseudoElement).addClass(config.pseudoCls).addClass(pseudoMatch[1]);
+                  if (pseudoMatch[1] === 'before') {
+                    pseudo.prependTo($el);
+                  } else {
+                    pseudo.appendTo($el);
                   }
-                  return pseudos.push(pseudo);
-                });
-                $found = pseudos;
-              }
+                }
+                return pseudos.push(pseudo);
+              });
+              $found = pseudos;
             }
             $newContext = $newContext.add($found);
             endTime = new Date().getTime();
@@ -273,7 +278,7 @@ The DOM is looped over 3 times:
           return new DeferredEvaluationNode('attr', function(env) {
             var $context, href, id;
             $context = env.doNotDefer;
-            if ($context.hasClass(PSEUDO_CLASS)) $context = $context.parent();
+            if ($context.hasClass(config.pseudoCls)) $context = $context.parent();
             href = args[0].eval(env).value;
             id = $context.attr(href);
             if (!id) {
@@ -375,21 +380,21 @@ The DOM is looped over 3 times:
             switch (contentType) {
               case 'NO_ARGUMENT':
                 ret = $node.contents().filter(function() {
-                  return this.nodeType !== 1 || !$(this).hasClass(PSEUDO_CLASS);
+                  return this.nodeType !== 1 || !$(this).hasClass(config.pseudoCls);
                 }).text();
                 break;
               case 'before':
-                ret = $node.children("." + PSEUDO_CLASS + ".before").text();
+                ret = $node.children("." + config.pseudoCls + ".before").text();
                 break;
               case 'after':
-                ret = $node.children("." + PSEUDO_CLASS + ".after").text();
+                ret = $node.children("." + config.pseudoCls + ".after").text();
                 break;
               case 'first-letter':
-                ret = $node.children(":not(." + PSEUDO_CLASS + ")").text().substring(0, 1);
+                ret = $node.children(":not(." + config.pseudoCls + ")").text().substring(0, 1);
                 break;
               default:
                 console.warn("content() was called with an invalid argument: '" + contentType + "'. Assuming no argument was passed in.");
-                ret = $node.children(":not(." + PSEUDO_CLASS + ")").text();
+                ret = $node.children(":not(." + config.pseudoCls + ")").text();
             }
             return new tree.Anonymous(ret);
           }).eval(env);
@@ -599,7 +604,7 @@ The DOM is looped over 3 times:
           return function($node) {
             var expr, hasPending, hasTarget, newContent, pseudoBefore;
             if ($node.data('content')) {
-              $node.addClass(DEBUG_MODIFIED_CLASS);
+              $node.addClass(config.debugCls);
               env = {
                 doNotDefer: $node,
                 frames: [
@@ -616,9 +621,9 @@ The DOM is looped over 3 times:
                 expressionsToString(env, expr);
               } else {
                 newContent = expressionsToString(env, expr);
-                pseudoBefore = $node.children('.#{PSEUDO_CLASS}.before');
+                pseudoBefore = $node.children("." + config.pseudoCls + ".before");
                 $node.contents().filter(function() {
-                  return this.nodeType !== 1 || !$(this).hasClass(PSEUDO_CLASS);
+                  return this.nodeType !== 1 || !$(this).hasClass(config.pseudoCls);
                 }).remove();
                 if (pseudoBefore.length) {
                   pseudoBefore.after(newContent);
