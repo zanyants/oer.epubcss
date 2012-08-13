@@ -108,7 +108,7 @@ To process a HTML and CSS file you will need to download http://phantomjs.org (H
 
 Then, to process a HTML file::
 
-  /path/to/phantomjs phantom-harness.coffee /path/to/less/file /absolute/path/to/htmlfile.html ./output.xhtml
+  /path/to/phantomjs phantom-harness.coffee /path/to/less/file /absolute/path/to/htmlfile.html ./output.xhtml ./output.css
 
 To see an example:
 - point your browser to ./test/example.html

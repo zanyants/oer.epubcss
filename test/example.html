@@ -8,7 +8,8 @@
   <script>
   $().ready(function() {
     return $('.lesscss').on('change', function() {
-      return (new EpubCSS()).emulate($('.lesscss').val());
+      var newCSS = (new EpubCSS()).emulate($('.lesscss').val());
+      $('<style type="text/css"></style>').append(newCSS).appendTo('body')
     });
   });
   </script>

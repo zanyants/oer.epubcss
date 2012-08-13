@@ -113,8 +113,11 @@ The DOM is looped over 3 times:
       this.config = $.extend(defaultConfig, config);
     }
 
+    /* Returns a string of the new CSS
+    */
+
     EpubCSS.prototype.emulate = function(cssStr, rootNode) {
-      var DeferredEvaluationNode, complexRules, config, evaluators, expressionsToString, interestingNodes, p, pendingNodes, preorderTraverse, storeIt, tree, _oldCallPrototype;
+      var DeferredEvaluationNode, complexRules, config, evaluators, expressionsToString, interestingNodes, newCSSFile, p, pendingNodes, preorderTraverse, storeIt, tree, _oldCallPrototype;
       if (rootNode == null) rootNode = $('html');
       config = this.config;
       /*
@@ -475,8 +478,9 @@ The DOM is looped over 3 times:
           return preorderTraverse($node.children(), func);
         });
       };
+      newCSSFile = null;
       p = less.Parser();
-      return p.parse(cssStr, function(err, lessNode) {
+      p.parse(cssStr, function(err, lessNode) {
         var ary, counterState, cssClassNum, cssClassPrefix, cssClasses, cssHashes, env, id, name, parseCounters, propName, propVal, props, recHasProperty, setContent, stringState, vals;
         env = {
           frames: []
@@ -653,8 +657,9 @@ The DOM is looped over 3 times:
           }
           ary.push("." + name + " { " + (vals.join('')) + " }");
         }
-        return $('<style type="text/css"></style>').append(ary.join('\n')).appendTo('body');
+        return newCSSFile = ary.join('\n');
       });
+      return newCSSFile;
     };
 
     return EpubCSS;

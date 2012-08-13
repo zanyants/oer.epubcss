@@ -5,11 +5,12 @@ page = require("webpage").create()
 page.onConsoleMessage = (msg, line, source) ->
   console.log "console> " + msg # + " @ line: " + line
 
-if system.args.length != 4
-  console.error "This program takes exactly 2 arguments:"
-  console.error "URL (for example 'file:///home/my-home/file.xhtml)"
+if system.args.length != 5
+  console.error "This program takes exactly 4 arguments:"
   console.error "CSS/LESS file (for example '/home/my-home/style.css)"
+  console.error "Absolute path to html file (for example '/home/my-home/file.xhtml)"
   console.error "Output (X)HTML file"
+  console.error "Output CSS file"
   phantom.exit 1
 
 cssFile = system.args[1]
@@ -25,12 +26,19 @@ address = "file://#{address}"
 outputFile = fs.open(system.args[3], 'w')
 outputFile.write '<html xmlns="http://www.w3.org/1999/xhtml">'
 
+outputCSSFile = fs.open(system.args[4], 'w')
+
 lines = 0
 page.onAlert = (msg) ->
   if lines++ > 100000
     console.log 'Still Serializing HTML...'
     lines = 0
   outputFile.write msg
+
+page.onConfirm = (msg) ->
+  outputCSSFile.write msg
+  outputCSSFile.close()
+  true
 
 console.log "Reading CSS file at: #{cssFile}"
 lessFile = fs.read(cssFile, 'utf-8')
@@ -56,7 +64,7 @@ page.open encodeURI(address), (status) ->
   num = page.evaluate((lessFile) ->
   
     parser = new (window.EpubCSS)()
-    parser.emulate(lessFile)
+    newCSS = parser.emulate(lessFile)
 
     # Hack to serialize out the HTML (sent to the console)
     console.log 'Serializing (X)HTML back out from WebKit...'
@@ -64,6 +72,8 @@ page.open encodeURI(address), (status) ->
       push: (str) -> alert str
     
     window.dom2xhtml.serialize($('body')[0], aryHack)
+    
+    confirm(newCSS)
 
   , lessFile)
   outputFile.flush()

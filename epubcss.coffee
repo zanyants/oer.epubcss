@@ -108,6 +108,7 @@ class EpubCSS
       pseudoElement: "<span></span>"
       
     @config = $.extend(defaultConfig, config)
+  ### Returns a string of the new CSS ###
   emulate: (cssStr, rootNode=$('html')) ->
     config = @config # Things like filters change @ so just use a local variable
 
@@ -431,6 +432,7 @@ class EpubCSS
         preorderTraverse($node.children(), func)
 
 
+    newCSSFile = null
     p = less.Parser()
     p.parse cssStr, (err, lessNode) ->
       env = { frames: [] }
@@ -603,8 +605,8 @@ class EpubCSS
         for propName, propVal of props
           vals.push("#{propName}: #{propVal};")
         ary.push ".#{name} { #{vals.join('')} }"
-      $('<style type="text/css"></style>').append(ary.join('\n')).appendTo('body')
-
+      newCSSFile = ary.join('\n')
+    return newCSSFile
 
 if module?
   module.exports = EpubCSS
