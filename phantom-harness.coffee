@@ -55,11 +55,18 @@ page.open encodeURI(address), (status) ->
     phantom.exit(1)
 
   console.log "Loaded? #{status}. Took #{((new Date().getTime()) - startTime) / 1000}s"
-  console.log "jQuery loaded..."  if page.injectJs(fs.workingDirectory + '/lib/jquery.js')
-  console.log "lesscss loaded..."  if page.injectJs(fs.workingDirectory + '/lib/less-1.3.0.js')
-  console.log "custom selectors loaded..."  if page.injectJs(fs.workingDirectory + '/custom.js')
-  console.log "epubcss class loaded..."  if page.injectJs(fs.workingDirectory + '/epubcss.js')
-  console.log "XHTML-serializer loaded..."  if page.injectJs(fs.workingDirectory + '/lib/dom-to-xhtml.js')
+  
+  loadScript = (path) ->
+    if page.injectJs(path)
+    else
+      console.error "Could not find #{path}"
+      phantom.exit(1)
+  
+  loadScript(fs.workingDirectory + '/lib/jquery.js')
+  loadScript(fs.workingDirectory + '/lib/less-1.3.0.js')
+  loadScript(fs.workingDirectory + '/custom.js')
+  loadScript(fs.workingDirectory + '/epubcss.js')
+  loadScript(fs.workingDirectory + '/lib/dom-to-xhtml.js')
 
   num = page.evaluate((lessFile) ->
   
