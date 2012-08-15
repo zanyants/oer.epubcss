@@ -5,12 +5,16 @@ page = require("webpage").create()
 page.onConsoleMessage = (msg, line, source) ->
   console.log "console> " + msg # + " @ line: " + line
 
-if system.args.length != 5
+if system.args.length < 5
   console.error "This program takes exactly 4 arguments:"
   console.error "CSS/LESS file (for example '/home/my-home/style.css)"
   console.error "Absolute path to html file (for example '/home/my-home/file.xhtml)"
   console.error "Output (X)HTML file"
   console.error "Output CSS file"
+  console.error "Additional config params passed to the EpubCSS constructor:"
+  console.error "  debug=true"
+  console.error "  autogenerateClasses=false"
+  # console.error "  bakeInAllStyles=true"
   phantom.exit 1
 
 cssFile = system.args[1]
@@ -27,6 +31,13 @@ outputFile = fs.open(system.args[3], 'w')
 outputFile.write '<html xmlns="http://www.w3.org/1999/xhtml">'
 
 outputCSSFile = fs.open(system.args[4], 'w')
+
+config = {}
+if system.args.length > 5
+  for param in system.args.slice(5)
+    [name, value] = param.split('=')
+    val = value == 'true'
+    config[name] = val
 
 lines = 0
 page.onAlert = (msg) ->
@@ -68,9 +79,9 @@ page.open encodeURI(address), (status) ->
   loadScript(fs.workingDirectory + '/epubcss.js')
   loadScript(fs.workingDirectory + '/lib/dom-to-xhtml.js')
 
-  num = page.evaluate((lessFile) ->
+  num = page.evaluate((lessFile, config) ->
   
-    parser = new (window.EpubCSS)()
+    parser = new (window.EpubCSS)(config)
     newCSS = parser.emulate(lessFile)
 
     # Hack to serialize out the HTML (sent to the console)
@@ -82,7 +93,7 @@ page.open encodeURI(address), (status) ->
     
     confirm(newCSS)
 
-  , lessFile)
+  , lessFile, config)
   outputFile.flush()
   outputFile.write '</html>'
   outputFile.close()
