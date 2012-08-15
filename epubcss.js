@@ -108,7 +108,9 @@ The DOM is looped over 3 times:
       defaultConfig = {
         debugCls: 'debug-epubcss',
         pseudoCls: "pseudo-element",
-        pseudoElement: "<span></span>"
+        pseudoElement: "<span></span>",
+        autogenerateClasses: true,
+        bakeInAllStyles: true
       };
       this.config = $.extend(defaultConfig, config);
     }
@@ -528,7 +530,7 @@ The DOM is looped over 3 times:
         cssClassPrefix = 'autogen-';
         cssClassNum = 0;
         preorderTraverse(rootNode, function($node) {
-          var counter, counters, exp, hash, isInteresting, name, stringsExp, style, val, _i, _len, _ref;
+          var counter, counters, exp, hash, isInteresting, name, propName, propVal, stringsExp, style, val, vals, _i, _len, _ref;
           if ($node.data('counter-reset')) {
             counters = parseCounters($node.data('counter-reset'), 0);
             for (counter in counters) {
@@ -573,18 +575,27 @@ The DOM is looped over 3 times:
               stringState[name] = val;
             }
           }
-          if ($node.data('style')) {
+          if (config.bakeInAllStyles && $node.data('style')) {
             style = $node.data('style');
             $node.data('style', null);
-            hash = JSON.stringify(style);
-            if (!(hash in cssHashes)) {
-              name = cssClassPrefix + (cssClassNum++);
-              cssHashes[hash] = name;
-              cssClasses[name] = style;
+            if (config.autogenerateClasses) {
+              hash = JSON.stringify(style);
+              if (!(hash in cssHashes)) {
+                name = cssClassPrefix + (cssClassNum++);
+                cssHashes[hash] = name;
+                cssClasses[name] = style;
+              } else {
+                name = cssHashes[hash];
+              }
+              return $node.addClass(name);
             } else {
-              name = cssHashes[hash];
+              vals = [];
+              for (propName in style) {
+                propVal = style[propName];
+                vals.push("" + propName + ": " + propVal + ";");
+              }
+              return $node.attr('style', vals.join(' '));
             }
-            return $node.addClass(name);
           }
         });
         console.log("----- Looping over all nodes and updating 'content:' without a target-*");

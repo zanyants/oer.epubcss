@@ -106,6 +106,8 @@ class EpubCSS
       debugCls: 'debug-epubcss' # Added whenever "content:" is evaluated. Set it to '' to not include
       pseudoCls: "pseudo-element"
       pseudoElement: "<span></span>"
+      autogenerateClasses: true
+      bakeInAllStyles: true # Injects the CSS style into the element's style attribute
       
     @config = $.extend(defaultConfig, config)
   ### Returns a string of the new CSS ###
@@ -528,18 +530,25 @@ class EpubCSS
               val = expressionsToString(env, new tree.Expression(stringsExp.value.slice(1)))
               stringState[name] = val
 
-          # Generate custom classes that don't match            
-          if $node.data('style')
+          # Generate custom classes that don't match
+          if config.bakeInAllStyles and $node.data('style')
             style = $node.data('style')
             $node.data('style', null) # Detatch the style
-            hash = JSON.stringify(style)
-            if hash not of cssHashes
-              name = cssClassPrefix + (cssClassNum++)
-              cssHashes[hash] = name
-              cssClasses[name] = style
+            if config.autogenerateClasses
+              hash = JSON.stringify(style)
+              if hash not of cssHashes
+                name = cssClassPrefix + (cssClassNum++)
+                cssHashes[hash] = name
+                cssClasses[name] = style
+              else
+                name = cssHashes[hash]
+              $node.addClass(name)
             else
-              name = cssHashes[hash]
-            $node.addClass(name)
+              vals = []
+              for propName, propVal of style
+                vals.push("#{propName}: #{propVal};")
+              $node.attr('style', vals.join(' '))
+              
 
       console.log "----- Looping over all nodes and updating 'content:' without a target-*"
       recHasProperty = (expr, propName) ->
