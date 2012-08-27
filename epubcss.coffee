@@ -108,6 +108,7 @@ class EpubCSS
       pseudoElement: "<span></span>"
       autogenerateClasses: true
       bakeInAllStyles: true # Injects the CSS style into the element's style attribute
+      multipleHTMLFiles: false
       
     @config = $.extend(defaultConfig, config)
   ### Returns a string of the new CSS ###
@@ -383,6 +384,10 @@ class EpubCSS
     storeIt = (cmd) -> ($el, value) ->
       #console.log "TODO: storing for later: #{cmd} #{$el[0].tagName}", value
       $el.data(cmd, value)
+
+    simpleStoreIt = (cmd) -> ($el, value) ->
+      #console.log "TODO: storing for later: #{cmd} #{$el[0].tagName}", value
+      $el.data(cmd, value.eval().value)
     
     complexRules =
       'counter-reset': storeIt 'counter-reset'
@@ -395,6 +400,8 @@ class EpubCSS
         else
           #console.log 'Setting display to something other than none; ignoring'
       'string-set': storeIt 'string-set'
+      'page-break-before': simpleStoreIt 'page-break-before'
+      'page-break-after':  simpleStoreIt 'page-break-after'
     
     # There are 2 types of calls in lesscss:
     # 1. Macros that are expanded
@@ -435,6 +442,7 @@ class EpubCSS
 
 
     newCSSFile = null
+    filesTable = {} # This variable maps filenames to their DOM elements
     p = less.Parser()
     p.parse cssStr, (err, lessNode) ->
       env = { frames: [] }
@@ -606,6 +614,58 @@ class EpubCSS
       console.log "----- Looping over all nodes and updating 'content:' with a target-*"
       preorderTraverse rootNode, setContent(true)
       
+      
+      # TODO: This doesn't need to be a separate pass, ot can be included in the previous pass
+      if config.multipleHTMLFiles
+        state = { name: "0.html", id: 0 }
+        
+        chunkHTMLFiles = ($node) ->
+          breakBefore = [ 'always', 'left', 'right' ].indexOf($node.data('page-break-before')) >= 0
+          breakAfter  = [ 'always', 'left', 'right' ].indexOf($node.data('page-break-after')) >= 0
+
+          if breakBefore
+            state.id++
+            state.name = "#{state.id}.html"
+
+          # Add the node somewhere even if it doesn't have page breaks
+          if breakBefore or breakAfter
+            $styleWrapper = $('<body></body>')
+            $node.parents().each () ->
+              $parent = $(@)
+              $styleWrapper.addClass($parent.attr('class'))
+            
+            $styleWrapper.append($node)
+            filesTable[state.name] = $styleWrapper
+
+          if breakAfter and not breakBefore
+              state.id++
+              state.name = "#{state.id}.html"
+      
+        preorderTraverse rootNode, chunkHTMLFiles
+
+        containsOrIs = ($container, $contained) ->
+          return $.contains($container[0], $contained[0]) or $container[0] == $contained[0]
+          
+
+        for linkPage, $nodes of filesTable
+          $nodes.find('a[href^="#"]').each () ->
+            $a = $(@)
+            # Look up the target
+            # See which page it belongs in
+            changedLink = false
+            for page, $nodes of filesTable
+              if page == linkPage
+                continue
+
+              $target = $nodes.find($a.attr('href'))
+              if $target.length
+                if containsOrIs($nodes, $target) and not containsOrIs($nodes, $a)
+                  $a.attr('href', "#{ page }#{ $a.attr('href') }")
+                  changedLink = true
+            if not changedLink
+              console.warn "Bad link! points to non-existent id=#{ $a.attr('href') }"
+          
+      
       console.log 'Done processing!'
       
       ary = []
@@ -615,7 +675,7 @@ class EpubCSS
           vals.push("#{propName}: #{propVal};")
         ary.push ".#{name} { #{vals.join('')} }"
       newCSSFile = ary.join('\n')
-    return newCSSFile
+    return { css: newCSSFile, files: filesTable }
 
 if module?
   module.exports = EpubCSS

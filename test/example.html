@@ -8,8 +8,9 @@
   <script>
   $().ready(function() {
     return $('.lesscss').on('change', function() {
-      var newCSS = (new EpubCSS()).emulate($('.lesscss').val());
-      $('<style type="text/css"></style>').append(newCSS).appendTo('body')
+      var config = { multipleHTMLFiles: true };
+      var obj = (new EpubCSS(config)).emulate($('.lesscss').val());
+      $('<style type="text/css"></style>').append(obj.css).appendTo('body')
     });
   });
   </script>
@@ -28,6 +29,11 @@
   <a href="#ch1"></a>
   <div class="chapter" id="ch1">
     <h1 id="ch1-title">Titul</h1>
+    <a href="#ch2">Link to ch2</a>
+  </div>
+  <div class="chapter" id="ch2">
+    <h1 id="ch2-title">Titul</h1>
+    <a href="#ch2-title">Internal link</a>
   </div>
   
 </div>

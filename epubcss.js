@@ -110,7 +110,8 @@ The DOM is looped over 3 times:
         pseudoCls: "pseudo-element",
         pseudoElement: "<span></span>",
         autogenerateClasses: true,
-        bakeInAllStyles: true
+        bakeInAllStyles: true,
+        multipleHTMLFiles: false
       };
       this.config = $.extend(defaultConfig, config);
     }
@@ -119,7 +120,7 @@ The DOM is looped over 3 times:
     */
 
     EpubCSS.prototype.emulate = function(cssStr, rootNode) {
-      var DeferredEvaluationNode, complexRules, config, evaluators, expressionsToString, interestingNodes, newCSSFile, p, pendingNodes, preorderTraverse, storeIt, tree, _oldCallPrototype;
+      var DeferredEvaluationNode, complexRules, config, evaluators, expressionsToString, filesTable, interestingNodes, newCSSFile, p, pendingNodes, preorderTraverse, simpleStoreIt, storeIt, tree, _oldCallPrototype;
       if (rootNode == null) rootNode = $('html');
       config = this.config;
       /*
@@ -429,6 +430,11 @@ The DOM is looped over 3 times:
           return $el.data(cmd, value);
         };
       };
+      simpleStoreIt = function(cmd) {
+        return function($el, value) {
+          return $el.data(cmd, value.eval().value);
+        };
+      };
       complexRules = {
         'counter-reset': storeIt('counter-reset'),
         'counter-increment': storeIt('counter-increment'),
@@ -441,7 +447,9 @@ The DOM is looped over 3 times:
 
           }
         },
-        'string-set': storeIt('string-set')
+        'string-set': storeIt('string-set'),
+        'page-break-before': simpleStoreIt('page-break-before'),
+        'page-break-after': simpleStoreIt('page-break-after')
       };
       _oldCallPrototype = less.tree.Call.prototype.eval;
       less.tree.Call.prototype.eval = function(env) {
@@ -481,9 +489,10 @@ The DOM is looped over 3 times:
         });
       };
       newCSSFile = null;
+      filesTable = {};
       p = less.Parser();
       p.parse(cssStr, function(err, lessNode) {
-        var ary, counterState, cssClassNum, cssClassPrefix, cssClasses, cssHashes, env, id, name, parseCounters, propName, propVal, props, recHasProperty, setContent, stringState, vals;
+        var $nodes, ary, chunkHTMLFiles, containsOrIs, counterState, cssClassNum, cssClassPrefix, cssClasses, cssHashes, env, id, linkPage, name, parseCounters, propName, propVal, props, recHasProperty, setContent, state, stringState, vals;
         env = {
           frames: []
         };
@@ -657,6 +666,61 @@ The DOM is looped over 3 times:
         preorderTraverse(rootNode, setContent(false));
         console.log("----- Looping over all nodes and updating 'content:' with a target-*");
         preorderTraverse(rootNode, setContent(true));
+        if (config.multipleHTMLFiles) {
+          state = {
+            name: "0.html",
+            id: 0
+          };
+          chunkHTMLFiles = function($node) {
+            var $styleWrapper, breakAfter, breakBefore;
+            breakBefore = ['always', 'left', 'right'].indexOf($node.data('page-break-before')) >= 0;
+            breakAfter = ['always', 'left', 'right'].indexOf($node.data('page-break-after')) >= 0;
+            if (breakBefore) {
+              state.id++;
+              state.name = "" + state.id + ".html";
+            }
+            if (breakBefore || breakAfter) {
+              $styleWrapper = $('<body></body>');
+              $node.parents().each(function() {
+                var $parent;
+                $parent = $(this);
+                return $styleWrapper.addClass($parent.attr('class'));
+              });
+              $styleWrapper.append($node);
+              filesTable[state.name] = $styleWrapper;
+            }
+            if (breakAfter && !breakBefore) {
+              state.id++;
+              return state.name = "" + state.id + ".html";
+            }
+          };
+          preorderTraverse(rootNode, chunkHTMLFiles);
+          containsOrIs = function($container, $contained) {
+            return $.contains($container[0], $contained[0]) || $container[0] === $contained[0];
+          };
+          for (linkPage in filesTable) {
+            $nodes = filesTable[linkPage];
+            $nodes.find('a[href^="#"]').each(function() {
+              var $a, $nodes, $target, changedLink, page;
+              $a = $(this);
+              changedLink = false;
+              for (page in filesTable) {
+                $nodes = filesTable[page];
+                if (page === linkPage) continue;
+                $target = $nodes.find($a.attr('href'));
+                if ($target.length) {
+                  if (containsOrIs($nodes, $target) && !containsOrIs($nodes, $a)) {
+                    $a.attr('href', "" + page + ($a.attr('href')));
+                    changedLink = true;
+                  }
+                }
+              }
+              if (!changedLink) {
+                return console.warn("Bad link! points to non-existent id=" + ($a.attr('href')));
+              }
+            });
+          }
+        }
         console.log('Done processing!');
         ary = [];
         for (name in cssClasses) {
@@ -670,7 +734,10 @@ The DOM is looped over 3 times:
         }
         return newCSSFile = ary.join('\n');
       });
-      return newCSSFile;
+      return {
+        css: newCSSFile,
+        files: filesTable
+      };
     };
 
     return EpubCSS;
