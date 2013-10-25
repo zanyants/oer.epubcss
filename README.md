@@ -96,7 +96,7 @@ Adding a rule to the previous example will yield the same HTML as before but sti
 Installing
 ====================
 
-To run the QUnit tests just point your browser to ./test/index.html
+To run the QUnit tests just point your browser to `./test/index.html`
 
 To process a HTML and CSS file you will need to download http://phantomjs.org (Headless webkit).
 
@@ -105,8 +105,8 @@ Then, to process a HTML file::
     /path/to/phantomjs phantom-harness.coffee /path/to/less/file /absolute/path/to/htmlfile.html ./output.xhtml ./output.css
 
 To see an example:
-- point your browser to ./test/example.html
+- point your browser to `./test/example.html`
 - open up the debugging console
-- copy the contents of ./test/example.less and paste it into the textarea
+- copy the contents of `./test/example.less` and paste it into the textarea
 - Press Tab to start the processing
 When it's done, text in yellow is content that was added/changed by the script.
