@@ -18,6 +18,6 @@ body::after {
 }
 
 a {
-  content: "lookup-counter: A ?= " target-counter(attr(href), chapter, upper-latin) " lookup-text: Titul ?= " target-text(attr(href) "-title", contents-element);
+  content: "lookup-counter: A ?= " target-counter(attr(href), chapter, upper-latin) " lookup-text: Titul ?= " target-text(attr(href) "-title", content());
   counter-increment: simple-counter;
 }
